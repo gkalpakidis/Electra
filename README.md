@@ -42,7 +42,7 @@ Execute commands
 Examples:
 
 ```bash
-python3 Electra.py webpass -u http://localhost/Electra/login.php -U george -w ./passwords.txt
+python3 Electra.py webpass -u http://localhost:3000/Electra/login.php -U george -w ./passwords.txt
 ```
 ## Screenshots
 
@@ -53,6 +53,11 @@ python3 Electra.py webpass -u http://localhost/Electra/login.php -U george -w ./
 - sscan
 
 ![sscan](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/sscan.png)
+
+- webpass
+
+![webpass](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/webpass.png)
+
 ## Authors
 
 - [@gkalpakidis](https://github.com/gkalpakidis)
