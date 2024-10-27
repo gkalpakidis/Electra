@@ -35,7 +35,7 @@ Execute commands
 ## Commands / Features
 
 - cdir = Create a new directory on a specific path.
-- sscan = Scan a system using the hostname.
+- sscan = Scan a system using the hostname. (currently just resolves the ip address of the host)
 - webpass = Perform a Web, Dictionary Password Brute Force attack.
 ## Using Electra
 
