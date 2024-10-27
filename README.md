@@ -4,7 +4,7 @@
 Electra - The Master Plot Planner.
 
 
-![](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/electra-logo.png)
+![](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/electra-logo.png)
 ## Run - Use Tool
 
 Clone the project
@@ -47,6 +47,7 @@ python3 Electra.py webpass -u http://localhost/Electra/login.php -U george -w ./
 ## Screenshots
 
 - cdir
+
 ![cdir](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/cdir.png)
 
 - sscan
