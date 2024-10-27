@@ -22,7 +22,7 @@ Go to the project directory
 Install dependencies
 
 ```bash
-  npm install
+  pip install -r requirements.txt
 ```
 
 Execute commands
