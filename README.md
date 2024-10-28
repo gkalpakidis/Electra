@@ -19,7 +19,7 @@ Go to the project directory
   cd Electra
 ```
 
-Install dependencies
+Install requirements / dependencies
 
 ```bash
   pip install -r requirements.txt
@@ -37,12 +37,17 @@ Execute commands
 - cdir = Create a new directory on a specific path.
 - sscan = Scan a system using the hostname. (currently just resolves the ip address of the host)
 - webpass = Perform a Web, Dictionary Password Brute Force attack.
+- webuser = Perform a Web, Dictionary Username Brute Force attack.
+- hashgen = Generate hash of a specific password.
 ## Using Electra
 
 Examples:
 
 ```bash
 python3 Electra.py webpass -u http://localhost:3000/Electra/login.php -U george -w ./passwords.txt
+```
+```bash
+python3 Electra.py hashgen -f md5 -p root
 ```
 ## Screenshots
 
