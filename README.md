@@ -35,7 +35,7 @@ Execute commands
 ## Commands / Features
 
 - cdir = Create a new directory on a specific path.
-- sscan = Scan a system using the hostname. (currently just resolves the ip address of the host)
+- sscan = Scan a system using the hostname.
 - webpass = Perform a Web, Dictionary Password Brute Force attack.
 - webuser = Perform a Web, Dictionary Username Brute Force attack.
 - hashgen = Generate hash of a specific password.
