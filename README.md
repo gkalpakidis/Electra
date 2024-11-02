@@ -9,6 +9,7 @@ Electra - The Master Plot Planner.
 ## Release Notes
 
 - Electra v1.1
+
 Added nscan Command. Used to perform a network scan.
 
 Added srvatk Command. Used to perform service (ssh, rdp etc) Dictionary Password Brute Force attacks.
