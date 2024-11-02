@@ -75,6 +75,7 @@ python3 Electra.py hashgen -f md5 -p root
 ![sscan](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/sscan.png)
 
 - nscan
+
 ![nscan](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/nscan.png)
 
 - webpass
