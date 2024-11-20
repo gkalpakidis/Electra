@@ -1,0 +1,13 @@
+mail
+forum
+blog
+shop
+forums
+wiki
+community
+mst
+cs
+af
+physics
+chem
+eclass
