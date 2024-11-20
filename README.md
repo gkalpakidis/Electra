@@ -10,13 +10,28 @@ Electra - The Master Plot Planner.
 
 - Electra v1.1
 
-Added nscan Command. Used to perform a network scan.
+Added nscan command. Performs a network scan.
 
-Added srvatk Command. Used to perform service (ssh, rdp etc) Dictionary Password Brute Force attacks.
+Added srvatk command. Performs service (ssh, rdp etc) Dictionary Password Brute Force attacks.
 
-Added webatk Command. Used to perform web (Basic & Digest) Username/Password Brute Force attacks.
+Added webatk command. Performs web (Basic & Digest) Username/Password Brute Force attacks.
 
 Fixed bugs.
+
+- Electra v1.2
+
+Added subenum command. Performs subdomain enumeration (Passive & Active).
+
+Added fuzz command. Performs directory, file and parameter fuzzing.
+
+Added revsh command. Spawns a reverse shell handler.
+
+Added netstr command. Performs DoS/DDoS attacks.
+
+Added encheck command. Performs service encryption analysis.
+
+Added exploit command. Performs search for an exploit.
+
 ## Run - Use Tool
 
 Clone the project
@@ -54,6 +69,13 @@ Execute commands
 - hashgen = Generates hash of a specific password.
 - srvatk = Performs service, Dictionary, Password Brute Force attacks.
 - webatk = Performs web (Basic & Digest) Username/Password Brute Force attacks.
+- subenum = Performs Subdomain enumeration (Passive & Active).
+- fuzz = Performs directory, file and parameter fuzzing.
+- revsh = Spawns a Reverse Shell Handler.
+- netstr = Performs DoS/DDoS attack.
+- encheck = Performs service encryption analysis.
+- exploit = Performs a search for an exploit.
+
 ## Using Electra
 
 Examples:
