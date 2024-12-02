@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-import pymongo.errors
+#import pymongo.errors
 import dns.resolver
 import concurrent.futures
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64
 #import telnetlib (Deprecated in python 3.13)
 import requests.auth
 from smbprotocol.connection import Connection
@@ -10,6 +10,8 @@ from smbprotocol.session import Session
 import vncdotool.api
 from hashid import HashID
 from bs4 import BeautifulSoup
+from scapy.all import sniff, wrpcap, rdpcap
+import urllib.parse
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -43,7 +45,9 @@ class BannerGroup(click.Group):
             ("revsh", "Reverse Shell Handler."),
             ("netstr", "Perform DoS/DDoS attack."),
             ("encheck", "Perform service encryption analysis."),
-            ("exploit", "Search an exploit.")
+            ("exploit", "Search an exploit."),
+            ("passperm", "Perform password permutations."),
+            ("codec", "Perform encoding & decoding.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -445,8 +449,8 @@ def srvatk(service, host, username, wordlist):
                         with open("Electra-Found-Service-Passwords.txt", "a") as service_passwords:
                             service_passwords.write(f"Service: {service.upper()}, Username: {username}, Password: {password}\n")
                         return
-                    except pymongo.errors.OperationFailure:
-                        click.echo(click.style(f"[!] MongoDB authentication attempt with {password} failed.", fg="red"))
+                    #except pymongo.errors.OperationFailure:
+                    #    click.echo(click.style(f"[!] MongoDB authentication attempt with {password} failed.", fg="red"))
                     except Exception as e:
                         click.echo(click.style(f"[!] MongoDB connection error: {e}", fg="red"))
                 elif service == "postgresql":
@@ -840,6 +844,162 @@ def exploit(query, output):
     
     except requests.RequestException as e:
         click.echo(click.style(f"[!] Error connecting to ExploitDB: {e}", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#PASSPERM COMMAND
+@cli.command()
+@click.option("-w", "--wordlist", type=click.Path(exists=True), required=True, help="Path to password wordlist.")
+@click.option("-o", "--output", default="Electra-Perm-Passwords.txt", help="Output file to save permutated passwords.")
+@click.option("-m", "--mode", type=click.Choice(["numbers", "special", "both", "chars", "all"], case_sensitive=False), required=True, help="Permutation mode. both = numbers & special characters. all = numbers, special characters & characters.")
+@click.option("-l", "--length", default=1, help="Length of permutations. (Default = 1)")
+def passperm(wordlist, output, mode, length):
+    click.echo(click.style("[*] Starting password permutation ...", fg="blue"))
+    numbers = "0123456789"
+    special_chars = "!@#$%^&*()-_=+[]{};:',.<>?/|\\"
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    charset = ""
+
+    if mode == "numbers":
+        charset = numbers
+    elif mode == "special":
+        charset = special_chars
+    elif mode == "both":
+        charset = numbers + special_chars
+    elif mode == "chars":
+        charset = chars
+    elif mode == "all":
+        charset = numbers + special_chars + chars
+    
+    try:
+        with open(wordlist, "r") as infile, open(output, "a") as outfile:
+            passwords = [line.strip() for line in infile]
+            click.echo(click.style(f"[~] Loaded {len(passwords)} passwords from the wordlist.", fg="yellow"))
+            #Generate permutations
+            for password in passwords:
+                new_passwords = set()
+                for combination in itertools.product(charset, repeat=length):
+                    comb = "".join(combination)
+                    
+                    #Create combinations
+                    new_passwords.add(password + comb)
+                    new_passwords.add(comb + password)
+
+                    #Replace characters within the password
+                    for i in range(len(password)):
+                        replace = (password[:i] + comb[0] + password[i + 1:])
+                        #Replace one character
+                        new_passwords.add(replace)
+                
+                for new_password in new_passwords:
+                    outfile.write(new_password + "\n")
+        click.echo(click.style(f"[!] Password permutations successfully saved to {output}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#NANAL COMMAND
+@cli.command()
+@click.option("-p", "--period", type=int, help="Duration in seconds to capture packets.")
+@click.option("-f", "--file", type=click.Path(exists=True), help="Path to an existing pcap file for analysis.")
+def nanal(period, file):
+    if not period and not file:
+        click.echo(click.style("[!] Specify a period for capture (-p) or provide an existing file (-f).", fg="magenta"))
+        return
+    
+    if period:
+        click.echo(click.style(f"[*] Starting packet capture for {period} seconds ...", fg="blue"))
+        try:
+            packets = sniff(timeout=period)
+            output_file = f"Electra-Capture-{int(time.time())}.pcap"
+            wrpcap(output_file, packets)
+            click.echo(click.style(f"[!] Capture completed. File saved to {output_file}", fg="green"))
+            pkt_anal(output_file)
+        except Exception as e:
+            click.echo(click.style(f"[!] Error during packet capture: {e}", fg="red"))
+    
+    if file:
+        click.echo(click.style(f"[*] Analyzing packets in file: {file} ...", fg="blue"))
+        pkt_anal(file)
+
+def pkt_anal(file):
+    try:
+        capture = pyshark.FileCapture(file)
+        unusual_packets = []
+        click.echo(click.style(f"[*] Scanning packets in {file} for anomalies ...", fg="blue"))
+        for packet in capture:
+            try:
+                if "ICMP" in packet and hasattr(packet.icmp, "type") and packet.icmp.type == "8":
+                    unusual_packets.append(f"ICMP Echo Request from {packet.ip.src} to {packet.ip.dst}")
+                if "TCP" in packet and hasattr(packet.tcp, "flags") and int(packet.tcp.flags, 16) == 0x3F:
+                    unusual_packets.append(f"SYN-FIN-PSH-URG flags set in TCP packet from {packet.ip.src} to {packet.ip.dst}")
+                if "DNS" in packet and packet.dns.qry_name.endswith("."):
+                    unusual_packets.append(f"DNS query for suspicious domain: {packet.dns.qry_name}")
+            except AttributeError:
+                continue
+        
+        if unusual_packets:
+            click.echo(click.style(f"[!] Detected unusual activity:", fg="yellow"))
+            for pkt in unusual_packets:
+                click.echo(click.style(f"{pkt}", fg="yellow"))
+        else:
+            click.echo(click.style(f"[!] No unusual activity detected.", fg="green"))
+        capture.close()
+    
+    except Exception as e:
+        click.echo(click.style(f"[!] Error analyzing pcap file. {e}", fg="red"))
+
+#CODEC COMMAND
+@cli.command()
+@click.option("-e", "--encode", is_flag=True, help="Encode the input.")
+@click.option("-d", "--decode", is_flag=True, help="Decode the input.")
+@click.option("-f", "--format", required=True, type=click.Choice(["base64", "url", "binary", "decimal", "octal", "hex"], case_sensitive=False), help="Specify the format (base64, url, etc).")
+@click.option("-i", "--input", required=True, help="Input string to encode or decode.")
+def codec(encode, decode, format, input):
+    if encode and decode:
+        click.echo(click.style("[!] Error: Please choose either encode or decode, not both.", fg="red"))
+        return
+    
+    if not encode and not decode:
+        click.echo(click.style("[!] Error: Please specify an option. Encode (-e) Decode (-d).", fg="red"))
+        return
+    
+    try:
+        if encode:
+            if format == "base64":
+                output = base64.b64encode(input.encode()).decode()
+            elif format == "url":
+                output = urllib.parse.quote(input)
+            elif format == "binary":
+                output = " ".join(format(ord(c), "08b") for c in input)
+            elif format == "decimal":
+                output = " ".join(str(ord(c)) for c in input)
+            elif format == "octal":
+                output = " ".join(format(ord(c), "o") for c in input)
+            elif format == "hex":
+                output = input.encode().hex()
+            else:
+                click.echo(click.style("[!] Invalid format specified.", fg="red"))
+                return
+            click.echo(click.style(f"[!] Encoded output: {output}", fg="green"))
+
+        if decode:
+            if format == "base64":
+                output = base64.b64decode(input).decode()
+            elif format == "url":
+                output = urllib.parse.unquote(input)
+            elif format == "binary":
+                output = "".join(chr(int(b, 2)) for b in input.split())
+            elif format == "decimal":
+                output = "".join(chr(int(d)) for d in input.split())
+            elif format == "octal":
+                output = "".join(chr(int(o, 8)) for o in input.split())
+            elif format == "hex":
+                output = bytes.fromhex(input).decode()
+            else:
+                click.echo(click.style("[!] Invalid format specified.", fg="red"))
+                return
+            click.echo(click.style(f"[!] Decoded output: {output}", fg="green"))
+    
     except Exception as e:
         click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
