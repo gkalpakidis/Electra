@@ -6,32 +6,6 @@ Electra - The Master Plot Planner.
 
 ![](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/electra-logo.png)
 
-## Release Notes
-
-- Electra v1.1
-
-Added nscan command. Performs a network scan.
-
-Added srvatk command. Performs service (ssh, rdp etc) Dictionary Password Brute Force attacks.
-
-Added webatk command. Performs web (Basic & Digest) Username/Password Brute Force attacks.
-
-Fixed bugs.
-
-- Electra v1.2
-
-Added subenum command. Performs subdomain enumeration (Passive & Active).
-
-Added fuzz command. Performs directory, file and parameter fuzzing.
-
-Added revsh command. Spawns a reverse shell handler.
-
-Added netstr command. Performs DoS/DDoS attacks.
-
-Added encheck command. Performs service encryption analysis.
-
-Added exploit command. Performs search for an exploit.
-
 ## Run - Use Tool
 
 Clone the project
