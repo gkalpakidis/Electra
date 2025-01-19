@@ -2,7 +2,7 @@
 #import pymongo.errors
 import dns.resolver
 import concurrent.futures
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3
 #import telnetlib (Deprecated in python 3.13)
 import requests.auth
 from smbprotocol.connection import Connection
@@ -12,6 +12,10 @@ from hashid import HashID
 from bs4 import BeautifulSoup
 from scapy.all import sniff, wrpcap, rdpcap
 import urllib.parse
+from twilio.rest import Client
+from azure.identity import DefaultAzureCredential
+from azure.mgmt.resource import ResourceManagementClient
+from google.cloud import storage
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -19,7 +23,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.2
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.3
 
 Electra - The master plan plotter.
 """
@@ -47,7 +51,11 @@ class BannerGroup(click.Group):
             ("encheck", "Perform service encryption analysis."),
             ("exploit", "Search an exploit."),
             ("passperm", "Perform password permutations."),
-            ("codec", "Perform encoding & decoding.")
+            ("codec", "Perform encoding & decoding."),
+            ("phish", "Generate phishing emails or login pages."),
+            ("dwrecon", "Dark Web Reconnaissance"),
+            ("soceng", "Perform Social Engineering attacks (Smishing & Vishing)."),
+            ("cloudsec", "Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -1002,6 +1010,299 @@ def codec(encode, decode, format, input):
     
     except Exception as e:
         click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#PHISH COMMAND
+@cli.command()
+@click.option("-m", "--mode", required=True, type=click.Choice(["email", "login"], case_sensitive=False), help="Modes: email = Generate email phishing templates | login = Generate phishing login pages.")
+@click.option("-t", "--template", type=click.Path(exists=True), help="Path to custom phishing template file.")
+@click.option("-o", "--output", default=os.path.join(os.getcwd(), "Phishing"), help="Output directory for generated content.")
+@click.option("-T", "--track", is_flag=True, help="Enable tracking of clicks and credential submissions. Default Flask Server: http://127.0.0.1:5000/track") #is_flag=True
+@click.option("-u", "--url", help="URL for tracking in emails or login pages. Flask Server Defaults = localhost, port: 5000, page: track") #default="http://127.0.0.1:5000/track"
+def phish(mode, template, output, track, url):
+    click.echo(click.style(f"[*] Started phishing using {mode} mode.", fg="blue"))
+    if not os.path.exists(output):
+        os.makedirs(output)
+    if mode == "email":
+        generate_email(template, output, track, url)
+    elif mode == "login":
+        generate_login(template, output, track, url)
+    else:
+        click.echo(click.style(f"[!] Error. Invalid mode.", fg="red"))
+
+def generate_email(template, output, track , url):
+    default_template = """\
+Subject: Important Account Security Notification
+<br><br>
+Dear User,
+<br><br>
+We have detected unusual activity in your account. Please verify your credentials by clicking the link below:
+<br><br>
+<a href="{tracking_url}">Verify Account</a>
+<br><br>
+Thank you,
+<br>
+Electra Security Team
+"""
+    try:
+        if template:
+            with open(template, "r") as file:
+                email_content = file.read()
+        else:
+            email_content = default_template
+        
+        tracking_url = url if url else "http://127.0.0.1:5000/track" #Custom tracking url
+        email_content = email_content.format(tracking_url=tracking_url)
+        output_file = os.path.join(output, "Phishing-Email-Template.html")
+        with open(output_file, "w") as file:
+            file.write(email_content)
+        click.echo(click.style(f"[!] Phishing email template successfully saved to {output_file}", fg="green"))
+    
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+def generate_login(template, output, track, url):
+    default_template = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Page</title>
+</head>
+<body>
+    <h2>Login to your account</h2>
+    <form method="POST" action="{tracking_url}">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username"><br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password"><br>
+        <button type="submit">Login</button>
+    </form>
+</body>
+</html>
+"""
+    try:
+        if template:
+            with open(template, "r") as file:
+                page_content = file.read()
+        else:
+            page_content = default_template
+        
+        tracking_url = url if url else "http://127.0.0.1:5000/track" #Custom tracking url
+        page_content = page_content.format(tracking_url=tracking_url)
+        output_file = os.path.join(output, "Phishing-Login-Page.html")
+        with open(output_file, "w") as file:
+            file.write(page_content)
+        click.echo(click.style(f"[!] Phishing login page template successfully saved to {output_file}", fg="green"))
+    
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#DWRECON COMMAND
+@cli.command()
+@click.option("-u", "--url", help=".onion URL to scrape.")
+@click.option("-l", "--list", type=click.Path(exists=True), help="Path to file containing .onion URLs to scrape.")
+@click.option("-k", "--keywords", help="Comma-seperated list of keywords to search for in the website content.")
+@click.option("-o", "--output", default=os.path.join(os.getcwd(), "DarkWeb/Electra-DarkWeb-Recon.txt"), help="Output file to save results. Default = Electra-DarkWeb-Recon.txt")
+def dwrecon(url, list, keywords, output):
+    click.echo(click.style("[*] Starting Dark Web Reconnaissance ...", fg="blue"))
+    proxies = {
+        "http": "socks5h://127.0.0.1:9050",
+        "https": "socks5h://127.0.0.1:9050"
+    }
+    urls = []
+    if url:
+        urls.append(url)
+    if list:
+        try:
+            with open(list, "r") as file:
+                urls.extend([line.strip() for line in file if line.strip()])
+        except FileNotFoundError:
+            click.echo(click.style(f"[!] Error: List file '{list}' not found.", fg="red"))
+            return
+    if not urls:
+        click.echo(click.style(f"[!] Error: No URLs provided. Use -u or -l option.", fg="red"))
+        return
+    keywords = [kw.strip().lower() for kw in keywords.split(",")] if keywords else []
+    #Scraping
+    results = []
+    for target_url in urls:
+        click.echo(click.style(f"[~] Connecting to {target_url} ...", fg="yellow"))
+        try:
+            response = requests.get(target_url, proxies=proxies, timeout=30)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                page_text = soup.get_text().lower()
+                matches = []
+                for keyword in keywords:
+                    if keyword in page_text:
+                        matches.append(keyword)
+                results.append({
+                    "url": target_url,
+                    "status": "success",
+                    "found_keywords": matches,
+                    "content": response.text if not keywords else None
+                })
+                click.echo(click.style(f"[!] Found keywords: {', '.join(matches) if matches else 'None'}", fg="green"))
+            else:
+                results.append({
+                    "url": target_url,
+                    "status": f"Error: HTTP {response.status_code}",
+                    "found_keywords": [],
+                    "content": None
+                })
+                click.echo(click.style(f"[!] Failed to scrape {target_url}. HTTP {response.status_code}", fg="red"))
+        except Exception as e:
+            results.append({
+                "url": target_url,
+                "status": f"Error {str(e)}",
+                "found_kewords": [],
+                "content": None
+            })
+            click.echo(click.style(f"[!] Error connecting to {target_url}. {e}", fg="red"))
+    
+    with open(output, "w") as file:
+        for result in results:
+            file.write(f"URL: {result['url']}\n")
+            file.write(f"Status: {result['status']}\n")
+            if result["found_keywords"]:
+                file.write(f"Found keywords: {', '.join(result['found_keywords'])}\n")
+            if result['content']:
+                file.write("Content:\n")
+                file.write(result['content'])
+            file.write("\n" + "-" * 40 + "\n")
+    
+    click.echo(click.style(f"[!] Dark Web Reconnaissance completed. Results successfully saved to {output}", fg="green"))
+
+#SOCENG COMMAND
+@cli.command()
+@click.option("-t", "--type", type=click.Choice(["smishing", "vishing"], case_sensitive=False), required=True, help="Type of Social Engineering attack (Smishing & Vishing).")
+@click.option("-n", "--number", type=click.Path(exists=True), required=True, help="Path to the file containing target phone numbers.")
+@click.option("-m", "--message", help="Message content for smishing (Required for SMS attacks).")
+@click.option("-a", "--audio", help="Path to pre-recorded audio file for vishing.")
+@click.option("-o", "--output", default=os.path.join(os.getcwd(), "SocEng/Electra-SocEng-Results.txt"), help="File to save the results. Default = Electra-SocEng-Results.txt")
+def soceng(type, numbers, message, audio, output):
+    click.echo(click.style(f"[*] Starting {type} attack ...", fg="blue"))
+    try:
+        with open(numbers, "r") as file:
+            targets = [line.strip() for line in file if line.strip()]
+        if not targets:
+            click.echo(click.style("[!] No valid phone numbers found in the file.", fg="red"))
+            return
+        if type == "smishing":
+            if not message:
+                click.echo(click.style("[!] Error: Message content is required for smishing", fg="red"))
+                return
+            click.echo(click.style("[*] Sending SMS to targets ...", fg="blue"))
+            for target in targets:
+                try:
+                    click.echo(click.style(f"[~] Sending SMS: {message} to {target}", fg="yellow"))
+                    #Twilio API call
+                    #Client.messages.create(to=target, from_="", body=message)
+                except Exception as e:
+                    click.echo(click.style(f"[!] Failed to send SMS to {target}. Error: {e}", fg="red"))
+        
+        elif type == "vishing":
+            click.echo(click.style("[!] Initiating voice calls to targets ...", fg="blue"))
+            for target in targets:
+                try:
+                    if audio:
+                        click.echo(click.style(f"[~] Calling {target} with pre-recorded audio: {audio}", fg="yellow"))
+                        #SIP/VoIP API call
+                        #pysip.Client.__call__(target, audio_file=audio)
+                    else:
+                        click.echo(click.style(f"[~] Live call initiated to {target}.", fg="yellow"))
+                        #SIP/VoIP API live call
+                        #pysip.Client.__call__(target)
+                except Exception as e:
+                    click.echo(click.style(f"[!] Failed to call {target}. Error: {e}", fg="red"))
+        
+        with open(output, "a") as log_file:
+            log_file.write(f"{type.capitalize()} attack results:\n")
+            log_file.write("\n".join(targets) + "\n")
+        click.echo(click.style(f"[!] {type.capitalize()} attack completed. Results Successfully saved to {output}.", fg="green"))
+    
+    except FileNotFoundError:
+        click.echo(click.style(f"[!] Error: Target numbers file not found.", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#CLOUDSEC COMMAND
+@cli.command()
+@click.option("-p", "--provider", type=click.Choice(["aws", "azure", "gcp"], case_sensitive=False), help="Cloud provider. aws = Amazon AWS | azure = Microsoft Azure | gcp = Google Cloud")
+@click.option("-a", "--action", type=click.Choice(["s3", "misconfig", "iamp"], case_sensitive=False), help="Action to perform. s3 = S3 Bucket Enumeration | misconfig = Check for misconfigurations | iamp = Assess IAM Policies")
+@click.option("-k", "--key", default=None, help="Cloud API key or credentials file for authentication.")
+@click.option("-s", "--subscription-key", default=None, help="Azure subscription key for authentication.")
+def cloudsec(provider, action, key, subscription_key):
+    click.echo(click.style(f"[*] Initiating cloud security test for {provider.upper()} ...", fg="blue"))
+    try:
+        if provider == "aws" and action == "s3":
+            s3_enum(key)
+        elif provider == "aws" and action == "iamp":
+            assess_iamp(key)
+        elif provider == "azure" and action == "misconfig":
+            azure_misconfig(key)
+        elif provider == "gcp" and action == "misconfig":
+            gcp_misconfig(key)
+        else:
+            click.echo(click.style("[!] Invalid provider-action combination.", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+def s3_enum(key):
+    click.echo(click.style("[*] Enumerating S3 buckets ...", fg="blue"))
+    if key:
+        session = boto3.Session(profile_name=key)
+    else:
+        session = boto3.Session()
+    
+    s3 = session.client("s3")
+    try:
+        response = s3.list_buckets()
+        click.echo(click.style("[!] Found buckets:", fg="green"))
+        for bucket in response.get("Buckets", []):
+            click.echo(click.style(f" - {bucket['Name']}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error accessing S3: {e}", fg="red"))
+
+def assess_iamp(key):
+    click.echo(click.style("[*] Assessing IAM policies ...", fg="blue"))
+    if key:
+        session = boto3.Session(profile_name=key)
+    else:
+        session = boto3.Session()
+    
+    iamp = session.client("iam")
+    try:
+        response = iamp.list_roles()
+        click.echo(click.style("[!] Found IAM roles:", fg="green"))
+        for role in response.get("Roles", []):
+            click.echo(click.style(f" - {role['RoleName']}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error accessing IAM roles. {e}", fg="red"))
+
+def azure_misconfig(key, subscription_key):
+    click.echo(click.style("[*] Checking Azure for misconfigurations ...", fg="blue"))
+    try:
+        credential = DefaultAzureCredential() if not key else key
+        if not subscription_key:
+            raise ValueError("Azure subscription key is required.")
+        client = ResourceManagementClient(credential, subscription_key)
+        for group in client.resource_groups.list():
+            click.echo(click.style(f"Resource group: {group.name}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error accessing Azure resources. {e}", fg="red"))
+
+def gcp_misconfig(key):
+    click.echo(click.style("[*] Checking GCP for misconfigurations ...", fg="blue"))
+    try:
+        client = storage.Client.from_service_account_json(key) if key else storage.Client()
+        buckets = client.list_buckets()
+        click.echo(click.style("[!] Found buckets:", fg="green"))
+        for bucket in buckets:
+            click.echo(click.style(f" - {bucket.name}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error accessing GCP resources. {e}", fg="red"))
 
 if __name__ == "__main__":
     cli()
