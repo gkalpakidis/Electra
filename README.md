@@ -40,6 +40,7 @@ Execute commands
 - webpass = Performs a Web, Dictionary Password Brute Force attack.
 - webuser = Performs a Web, Dictionary Username Brute Force attack.
 - hashgen = Generates hash of a specific password.
+- hashcrk = Crack a hash or a list of hashes.
 - srvatk = Performs service, Dictionary, Password Brute Force attacks.
 - webatk = Performs web (Basic & Digest) Username/Password Brute Force attacks.
 - subenum = Performs Subdomain enumeration (Passive & Active).
@@ -55,7 +56,12 @@ Execute commands
 - dwrecon = Perform Dark Web Reconnaissance.
 - soceng = Perform Social Engineering attacks (Smishing & Vishing).
 - cloudsec = Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies.
+- privescdet = Privilege Escalation Detection.
+- wifiatk = Perform handshake captures. Analyze signal strength. Detect rogue APs. Crack WPA/WPA2 passwords.
+- iotsec = Scan and exploit IoT devices.
+- xsscan = Scan for XSS vulnerabilities.
 
+**_Total Commands/Features = 25_**
 
 ## Using Electra
 
