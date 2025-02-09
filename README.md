@@ -49,12 +49,12 @@ Execute commands
 - encheck = Performs service encryption analysis.
 - exploit = Performs a search for an exploit.
 - passperm = Perform password permutations.
+- nanal = Perform network analysis. Capture and Analyse packets.
 - codec = Perform encoding & decoding.
 - phish = Generate phishing emails or login pages.
 - dwrecon = Perform Dark Web Reconnaissance.
 - soceng = Perform Social Engineering attacks (Smishing & Vishing).
 - cloudsec = Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies.
-- privescdet = Privilege Escalation Detection.
 
 
 ## Using Electra
