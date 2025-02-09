@@ -55,7 +55,10 @@ Execute commands
 - dwrecon = Perform Dark Web Reconnaissance.
 - soceng = Perform Social Engineering attacks (Smishing & Vishing).
 - cloudsec = Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies.
-
+- privescdet = Privilege Escalation Detection.
+- wifiatk = Perform handshake captures. Analyze signal strength. Detect rogue APs. Crack WPA/WPA2 passwords.
+- iotsec = Scan and exploit IoT devices.
+- xsscan = Scan for XSS vulnerabilities.
 
 ## Using Electra
 
