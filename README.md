@@ -35,7 +35,6 @@ Execute commands
 
 ## Commands / Features
 
-- cdir = Creates a new directory on a specific path.
 - sscan = Scans a system using the hostname.
 - nscan = Scans a network using an ip address.
 - webpass = Performs a Web, Dictionary Password Brute Force attack.
@@ -57,6 +56,7 @@ Execute commands
 - cloudsec = Enumerate S3 buckets. Check for misconfigurations. Assess IAM Policies.
 - privescdet = Privilege Escalation Detection.
 
+
 ## Using Electra
 
 Examples:
@@ -68,10 +68,6 @@ python3 Electra.py webpass -u http://localhost:3000/Electra/login.php -U george 
 python3 Electra.py hashgen -f md5 -p root
 ```
 ## Screenshots
-
-- cdir
-
-![cdir](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/cdir.png)
 
 - sscan
 
