@@ -1,0 +1,12 @@
+http://169.254.169.254/latest/meta-data/
+http://127.0.0.1/admin
+http://127.0.0.1/metadata
+http://127.0.0.1:8000/metadata
+http://127.0.0.1:8081/metadata
+http://127.0.0.1:5000/metadata
+http://127.0.0.1:5001/metadata
+http://192.168.1.1/metadata
+http://192.168.1.1:5000/metadata
+http://192.168.1.1:5001/metadata
+http://192.168.1.1:8080/metadata
+http://192.168.1.1:8081/metadata
