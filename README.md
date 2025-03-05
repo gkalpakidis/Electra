@@ -60,8 +60,11 @@ Execute commands
 - wifiatk = Perform handshake captures. Analyze signal strength. Detect rogue APs. Crack WPA/WPA2 passwords.
 - iotsec = Scan and exploit IoT devices.
 - xsscan = Scan for XSS vulnerabilities.
+- cryptaudit = Assess cryptographic implementations.
+- csrf = Scan for CSRF vulnerabilities.
+- ssrf = Scan for SSRF vulnerabilities.
 
-**_Total Commands/Features = 25_**
+**_Total Commands/Features = 28_**
 
 ## Using Electra
 
