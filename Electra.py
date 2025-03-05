@@ -2,7 +2,7 @@
 #import pymongo.errors
 import dns.resolver
 import concurrent.futures
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random
 #import telnetlib (Deprecated in python 3.13)
 import requests.auth
 from smbprotocol.connection import Connection
@@ -22,6 +22,11 @@ from paho import mqtt
 from aiocoap import Context, Message
 from aiocoap.numbers.codes import GET
 import xml.etree.ElementTree as ET #Deprecated
+import cryptography.hazmat.primitives.asymmetric.rsa as rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import padding
+from OpenSSL import crypto
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -29,7 +34,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.4
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.5
 
 Electra - The master plan plotter.
 """
@@ -66,7 +71,10 @@ class BannerGroup(click.Group):
             ("privescdet", "Privilege Escalation Detection."),
             ("wifiatk", "Perform handshake captures. Analyze signal strength. Detect rogue APs. Crack WPA/WPA2 passwords."),
             ("iotsec", "Scan and exploit IoT devices."),
-            ("xsscan", "Scan for XSS vulnerabilities.")
+            ("xsscan", "Scan for XSS vulnerabilities."),
+            ("cryptaudit", "Assess cryptographic implementations."),
+            ("csrf", "Scan for CSRF vulnerabilities."),
+            ("ssrf", "Scan for SSRF vulnerabilities.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -1865,6 +1873,250 @@ def dom_xss(url, payloads):
         response = requests.get(dom_url)
         if is_vulnerable(response, payload):
             click.echo(click.style(f"[!] DOM-based XSS detected at {dom_url}", fg="green"))
+
+#CRYPTAUDIT COMMAND
+@cli.command()
+@click.option("-f", "--file", required=True, help="File containing cryptographic keys or TLS configurations.")
+@click.option("-k", "--key", is_flag=True, help="Check cryptographic key strength.")
+@click.option("-a", "--algorithm", is_flag=True, help="Check for weak or deprecated cryptographic algorithms.")
+@click.option("-p", "--padding", is_flag=True, help="Identify improper padding in encrypted data.")
+@click.option("-c", "--cert", is_flag=True, help="Audit SSL/TLS configurations.")
+def cryptaudit(file, key, algorithm, padding, cert):
+    if key:
+        check_key(file)
+    if algorithm:
+        check_algorithm(file)
+    if padding:
+        check_padding(file)
+    if cert:
+        check_cert(file)
+
+def check_key(file):
+    #Check cryptographic key strength from a PEM file
+    try:
+        with open(file, "rb") as f:
+            key_data = f.read()
+        private_key = load_pem_private_key(key_data, password=None, backend=default_backend())
+        if isinstance(private_key, rsa.RSAPrivateKey):
+            key_size = private_key.key_size
+            if key_size < 2048:
+                click.echo(click.style(f"[!] Weak RSA key detected! Size: {key_size} bits.", fg="green"))
+            else:
+                click.echo(click.style(f"[!] RSA key strength is sufficient. Size: {key_size} bits.", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Failed to analyse key. Error: {e}", fg="red"))
+
+def check_algorithm(file):
+    #Check weap or deprecated hashes and encryption algorithms
+    weak_hashes = ["md5", "sha1"]
+    with open(file, "r") as f:
+        data = f.read().lower()
+    for algorithm in weak_hashes:
+        if algorithm in data:
+            click.echo(click.style(f"[!] Weak or deprecated hashing algorithm detected: {algorithm.upper()}", fg="green"))
+
+def check_padding(file):
+    #Detects improper padding usage
+    try:
+        data = b" " * 16
+        pad = padding.PKCS7(128).padder()
+        padded_data = pad.update(data) + pad.finalize()
+        click.echo(click.style("[!] Detected proper padding.", fg="red"))
+    except Exception:
+        click.echo(click.style("[!] Detected improper padding.", fg="green"))
+
+def check_cert(domain):
+    #Audit SSL/TLS configuration of given domain
+    try:
+        conn = ssl.create_connection((domain, 443))
+        context = ssl.create_default_context()
+        with context.wrap_socket(conn, server_hostname=domain) as sock:
+            cert = sock.getpeercert(binary_form=True)
+            x509 = crypto.load_certificate(crypto.FILETYPE_ASN1, cert)
+            expiry = x509.get_notAfter().decode("utf-8")
+            click.echo(click.style(f"[!] TLS cert valid until: {expiry}", fg="yellow"))
+    except Exception as e:
+        click.echo(click.style(f"[!] TLS audit failed. Error: {e}", fg="red"))
+
+#CSRF COMMAND
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL.")
+@click.option("-p", "--post", help="POST data to use in the request.") #default=None
+@click.option("-c", "--cookie", help="Session cookie for authenticated requests.") #default=None
+@click.option("-h", "--headers", help="Use custom headers in JSON format.") #default=None
+@click.option("-d", "--detect", is_flag=True, help="Detect if CSRF protection exists.")
+@click.option("-t", "--test", is_flag=True, help="Bypass CSRF protection.")
+@click.option("--js", is_flag=True, help="Check for JS-based CSRF tokens.")
+@click.option("--ajax", is_flag=True, help="Intercept AJAX-based CSRF tokens.")
+def csrf(url, post, cookie, headers, detect, test, js, ajax):
+    click.echo(click.style(f"[*] Checking for CSRF vulnerabilities on {url}", fg="blue"))
+    session = requests.Session()
+    req_headers = {}
+
+    if headers:
+        try:
+            req_headers = json.loads(headers)
+        except json.JSONDecodeError:
+            click.echo(click.style("[!] Invalid headers format (use JSON).", fg="red"))
+            return
+    
+    if cookie:
+        req_headers["Cookie"] = cookie
+    
+    try:
+        response = session.get(url, headers=req_headers)
+        soup = BeautifulSoup(response.text, "html.parser")
+        forms = soup.find_all("form")
+        if not forms:
+            click.echo(click.style("\n[!] No forms detected on the page.", fg="red"))
+            return
+        click.echo(click.style(f"\n[!] Found {len(forms)} form(s).", fg="green"))
+
+        for idx, form in enumerate(forms):
+            action = form.get("action")
+            method = form.get("method", "GET").upper()
+            inputs = form.find_all("input")
+            tokens = [i for i in inputs if "csrf" in (i.get("name", "") + i.get("id", "")).lower()]
+            click.echo(click.style(f"\n[~] Form {idx + 1}: {action} (Method: {method})", fg="yellow"))
+
+            if detect:
+                if tokens:
+                    click.echo(click.style(f"\n[!] Detected CSRF token: {tokens[0].get('name')}", fg="green"))
+                else:
+                    click.echo(click.style("\n[!] No CSRF token detected.", fg="red"))
+            
+            if test and tokens:
+                token = tokens[0].get("value", "")
+                data = {i.get("name", ""): i.get("value", "") for i in inputs if i.get("name")}
+
+                if token:
+                    del data[tokens[0].get("name")]
+                click.echo(click.style("[*] Attempting CSRF bypass by submitting without token ...", fg="blue"))
+
+                if method == "POST":
+                    resp = session.post(url, data=data, headers=req_headers)
+                else:
+                    resp = session.get(url, params=data, headers=req_headers)
+                
+                if resp.status_code == 200:
+                    click.echo(click.style("[!] Detected potential CSRF vulnerability. Request succeeded without a CSRF token.", fg="green"))
+                else:
+                    click.echo(click.style("[!] Detected effective CSRF protection.", fg="red"))
+
+        if js:
+            click.echo(click.style("\n[*] Checking JavaScript for CSRF tokens ...", fg="blue"))
+            scripts = soup.find_all("script")
+            js_tokens = []
+            for script in scripts:
+                script_text = script.string
+                if script_text:
+                    #Detect common JS CSRF token patterns
+                    patterns = [
+                        r"var\s+csrfToken\s*=\s*[\"'](.+?)[\"']",
+                        r"window\.csrfToken\s*=\s*[\"'](.+?)[\"']",
+                        r"csrf_token\s*:\s*[\"'](.+?)[\"']",
+                        r"meta\[\"csrf-token\"\]\.content\s*=\s*[\"'](.+?)[\"']"
+                    ]
+
+                    for pattern in patterns:
+                        match = re.search(pattern, script_text)
+                        if match:
+                            js_tokens.append(match.group(1))
+            
+            if js_tokens:
+                click.echo(click.style(f"[!] Detected JS-based CSRF token(s): {', '.join(js_tokens)}", fg="green"))
+            else:
+                click.echo(click.style("[!] No JS-based CSRF tokens found.", fg="red"))
+
+        if ajax:
+            click.echo(click.style(f"\n[*] Intercepting AJAX requests for CSRF tokens ...", fg="blue"))
+            ajax_patterns = [
+                r"fetch\(\"(.*?)\"",
+                r"XMLHttpRequest\(\);.*?\.open\(\"(.*?)\"",
+                r"\$.ajax\(\s*{.*?url:\s*\"(.*?)\""
+            ]
+
+            endpoints = set()
+            for script in scripts:
+                script_text = script.string()
+                if script_text:
+                    for pattern in ajax_patterns:
+                        matches = re.findall(pattern, script_text)
+                        for match in matches:
+                            endpoints.add(match)
+            
+            if endpoints:
+                click.echo(click.style(f"[!] Found AJAX endpoints: {', '.join(endpoints)}", fg="green"))
+                for endpoint in endpoints:
+                    if not endpoint.startswith("http"):
+                        endpoint = url.rstrip("/") + "/" + endpoint.lstrip("/")
+                    click.echo(click.style(f"[*] Testing AJAX endpoint: {endpoint} ...", fg="blue"))
+                    ajax_headers = req_headers.copy()
+                    ajax_headers["X-Requested-With"] = "XMLHttpRequest"
+                    test_resp = session.get(endpoint, headers=ajax_headers)
+                    if test_resp.status_code == 200:
+                        click.echo(click.style("[!] Detected possible CSRF vulnerability. AJAX request succeeded without a CSRF token.", fg="green"))
+                    else:
+                        click.echo(click.style("[!] Detected CSRF protection. AJAX request blocked.", fg="red"))
+            else:
+                click.echo(click.style("[!] No AJAX-based CSRF tokens found.", fg="red"))
+
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#SSRF COMMAND
+def ssrf_payloads():
+    payloads = [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://localhost:22/",
+        "http://127.0.0.1:80/",
+        "http://[::1]:80/",
+        "http://0.0.0.0:80/",
+        "http://192.168.1.1/",
+        "http://internal-service/"
+    ]
+
+    encoded_payloads = []
+    for payload in payloads:
+        encoded_payloads.append(payload) #Base payloads
+        encoded_payloads.append(urllib.parse.quote(payload)) #URL encoded
+        encoded_payloads.append(urllib.parse.quote_plus(payload)) #URL encoded (+ instead of %20)
+        encoded_payloads.append(payload.replace("http://", "http:\\/\\/")) #Slash escaped
+        encoded_payloads.append(payload.replace(".", "[.]")) #Dot escaped
+        encoded_payloads.append(urllib.parse.quote(urllib.parse.quote(payload))) #Double encoded
+        encoded_payloads.append("".join(random.choice([urllib.parse.quote(c), c]) for c in payload)) #Mixed encoded
+        encoded_payloads.append("".join(f"%{hex(ord(c))[2:].zfill(2)}" for c in payload)) #Hex encoded
+        encoded_payloads.append(base64.b64encode(payload.encode()).decode()) #Base64 encoded
+    return list(set(encoded_payloads))
+
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL.")
+@click.option("-p", "--param", required=True, help="Parameter to inject on payloads.")
+@click.option("-h", "--header", multiple=True, help="Custom headers to include in requests.")
+@click.option("--proxy", help="Proxy to use (e.g. http://127.0.0.1:8000).")
+def ssrf(url, param, header, proxy):
+    headers = {h.split(":")[0].strip(): h.split(":")[1].strip() for h in header}
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    payloads = ssrf_payloads()
+
+    click.echo(click.style("[*] Scanning for SSRF vulnerabilities ...\n", fg="blue"))
+    for payload in payloads:
+        params = {param: payload}
+        try:
+            response = requests.get(url, params=params, headers=headers, proxies=proxies, timeout=5)
+            try:
+                json_response = response.json()
+                click.echo(click.style(f"[~] Payload: {payload}, Status Code: {response.status_code}", fg="yellow"))
+                #if response.status_code in [200, 302] and any(keyword in response.text.lower() for keyword in ["meta-data", "ssh", "internal", "electra"]):
+                if response.status_code in [200, 302] and any(keyword in str(json_response).lower() for keyword in ["meta-data", "ssh", "internal", "ssrf", "attacked", "electra"]):
+                    click.echo(click.style(f"[!] Detected possible SSRF with payload: {payload}", fg="green"))
+            except ValueError:
+                if response.status_code in [200, 302] and any(keyword in response.text.lower() for keyword in ["meta-data", "ssh", "internal", "ssrf", "attacked", "electra"]):
+                    click.echo(click.style(f"[!] Detected possible SSRF with payload: {payload}", fg="green"))
+        except requests.exceptions.RequestException as e:
+            click.echo(click.style(f"[!] Request failed: {e}", fg="red"))
+    
+    click.echo(click.style("\n[*] SSRF scan completed.", fg="blue"))
 
 if __name__ == "__main__":
     cli()
