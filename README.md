@@ -80,7 +80,7 @@ python3 Electra.py hashgen -f md5 -p root
 
 - lfi
 
-![lfi](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/Electra-LFI.mp4)
+![lfi](https://github.com/gkalpakidis/Electra/raw/refs/heads/main/Misc/Electra-LFI.mp4)
 
 - nscan
 
