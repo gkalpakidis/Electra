@@ -78,23 +78,17 @@ python3 Electra.py hashgen -f md5 -p root
 ```
 ## Screenshots
 
-- sscan
-
-![sscan](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/sscan.png)
-
 - nscan
 
 ![nscan](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/nscan.png)
-
-- webpass
-
-![webpass](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/webpass.png)
 
 - srvatk
 
 ![srvatk](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/srvatk-1.png)
 
 ![srvatk](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/srvatk-2.png)
+
+**Find more screenshots inside the Misc directory.**
 
 ## Authors
 
