@@ -63,8 +63,12 @@ Execute commands
 - cryptaudit = Assess cryptographic implementations.
 - csrf = Scan for CSRF vulnerabilities.
 - ssrf = Scan for SSRF vulnerabilities.
+- dbscan = Assess database vulnerabilities.
+- dnskit = Generate domain names. Perform DNS queries. Estimate webpage similarity.
+- wpscan = Scan wordpress websites.
+- lfi = Perform Local File Inclusion vulnerability checks.
 
-**_Total Commands/Features = 28_**
+**_Total Commands/Features = 32_**
 
 ## Using Electra
 
