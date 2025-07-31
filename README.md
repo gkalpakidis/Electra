@@ -1,12 +1,16 @@
 
-# Electra
+# ℹ️ Electra
 
-Electra - The Master Plot Planner.
+- **Electra (The Master Plot Planner)** is a custom penetration testing tool, written in python, containing many useful functions for an average penetration test.<br>
+- Currently, Electra has **41** commands which range from **simple ones** _(system and network scanning)_ to **complex ones** _(api scanning and exploitation)_.<br>
+- Many commands have their own directories with **vulnerable & secure test servers, payloads, wordlists, etc**. Most of the vulnerable targets are also written in **python** using **flask**.<br>
+- This tool was developed because I wanted to sharpen my skills both in coding/scripting and cybersecurity/penetration testing.<br>
+👍 I hope you find this tool useful and helpful. **_Happy penetration testing!_**
 
 
 ![](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/electra-logo.png)
 
-## Run - Use Tool
+## ▶️ Run - Use Tool
 
 Clone the project
 
@@ -33,7 +37,7 @@ Execute commands
 ```
 
 
-## Commands / Features
+## ⚡ Commands / Features
 
 - sscan = Scans a system using the hostname.
 - nscan = Scans a network using an ip address.
@@ -77,9 +81,10 @@ Execute commands
 - webdav = Scan and Exploit WebDAV vulnerabilities.
 - api = Perform API scanning and exploitation.
 
+📈
 **_Total Commands/Features = 41_**
 
-## Using Electra
+## 🗒️ Using Electra
 
 Examples:
 
@@ -89,21 +94,22 @@ python3 Electra.py webpass -u http://localhost:3000/Electra/login.php -U george 
 ```bash
 python3 Electra.py hashgen -f md5 -p root
 ```
-## Screenshots
+## 🖼️ Screenshots
 
-- nscan
+- 🔎 nscan
 
 ![nscan](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/nscan.png)
 
-- srvatk
+- 🗡️ srvatk
 
 ![srvatk](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/srvatk-1.png)
 
 ![srvatk](https://raw.githubusercontent.com/gkalpakidis/Electra/refs/heads/main/Misc/srvatk-2.png)
 
+➕
 **Find more screenshots inside the Misc directory.**
 
-## Authors
+## ✍️ Authors
 
 - [@gkalpakidis](https://github.com/gkalpakidis)
 - [@Fl0w3r1](https://github.com/Fl0w3r1)
