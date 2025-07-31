@@ -67,8 +67,17 @@ Execute commands
 - dnskit = Generate domain names. Perform DNS queries. Estimate webpage similarity.
 - wpscan = Scan wordpress websites.
 - lfi = Perform Local File Inclusion vulnerability checks.
+- xxe = Scan for XXE vulnerabilities.
+- cookie = Scan and exploit cookie vulnerabilities.
+- idor = Scan for Insecure Direct Object Reference vulnerability.
+- ssi = Scan for Server-Side Includes Injection vulnerability.
+- webserv = Scan for SOAP, WSDL and web services vulnerabilities.
+- cors = Scan for CORS misconfigurations/vulnerabilities.
+- xpath = Scan for XPath Injection Vulnerabilities.
+- webdav = Scan and Exploit WebDAV vulnerabilities.
+- api = Perform API scanning and exploitation.
 
-**_Total Commands/Features = 32_**
+**_Total Commands/Features = 41_**
 
 ## Using Electra
 
