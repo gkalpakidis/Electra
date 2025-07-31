@@ -3,8 +3,7 @@
 import dns.resolver
 import concurrent.futures
 import pymongo.errors
-import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random, pymssql, threading, urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import click, sys, os, socket, requests, platform, psutil, subprocess, hashlib, bcrypt, paramiko, ftplib, time, poplib, imaplib, vncdotool, pymysql, pymongo, psycopg2, ldap3, ssl, itertools, pyshark, base64, pysip, boto3, re, json, random, pymssql, threading
 #import telnetlib (Deprecated in python 3.13)
 #import ssdeep
 import requests.auth
